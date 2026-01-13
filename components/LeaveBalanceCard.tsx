@@ -16,6 +16,9 @@ const LeaveBalanceCard: React.FC<LeaveBalanceCardProps> = ({
 }) => {
   const monthPercentage = (used / maxPerMonth) * 100;
   const yearlyPercentage = (balance / total) * 100;
+  // Calculate stroke dash array for radius 25: 2 * PI * 25 = 157.08
+  const radius = 25;
+  const circumference = 2 * Math.PI * radius;
 
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
@@ -44,26 +47,28 @@ const LeaveBalanceCard: React.FC<LeaveBalanceCardProps> = ({
 
         {/* Yearly Balance */}
         <div className="flex items-center space-x-4 pt-2 border-t border-slate-50">
-           <div className="relative inline-flex items-center justify-center">
-            <svg className="w-16 h-16 transform -rotate-90">
+           <div className="relative w-16 h-16 flex items-center justify-center">
+            <svg 
+              className={`w-16 h-16 transform -rotate-90 overflow-visible ${ringColor}`} 
+              viewBox="0 0 64 64"
+            >
               <circle
                 className="text-slate-100"
                 strokeWidth="6"
                 stroke="currentColor"
                 fill="transparent"
-                r="26"
+                r={radius}
                 cx="32"
                 cy="32"
               />
               <circle
-                className={ringColor}
                 strokeWidth="6"
-                strokeDasharray={163.36}
-                strokeDashoffset={163.36 - (163.36 * yearlyPercentage) / 100}
+                strokeDasharray={circumference}
+                strokeDashoffset={circumference - (circumference * yearlyPercentage) / 100}
                 strokeLinecap="round"
                 stroke="currentColor"
                 fill="transparent"
-                r="26"
+                r={radius}
                 cx="32"
                 cy="32"
               />

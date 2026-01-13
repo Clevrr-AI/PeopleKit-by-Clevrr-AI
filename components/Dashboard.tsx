@@ -43,10 +43,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, leaveBalances, retentionBon
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500 text-sm">Welcome back, {user.name || 'User'}! {isManager && 'Review your team requests below.'}</p>
+          <p className="text-slate-500 text-sm">Welcome back, {user.name || 'User'}! Review your team requests below.</p>
         </div>
         {isManager && (
-          <div className="flex items-center space-x-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md shadow-indigo-100">
+          <div className="flex items-center space-x-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-1.5 rounded-xl text-xs font-bold shadow-sm ring-1 ring-indigo-50">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
@@ -91,14 +91,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, leaveBalances, retentionBon
             ringColor="text-emerald-600"
           />
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-center items-center text-center">
-            <div className="p-3 bg-orange-100 rounded-full mb-3">
-              <svg className="h-8 w-8 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="p-3 bg-orange-50 rounded-full mb-3">
+              <svg className="h-8 w-8 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 className="text-slate-500 text-sm font-medium uppercase tracking-wider">Half Days Taken</h3>
-            <p className="text-4xl font-bold text-slate-900 mt-2">{leaveBalances.hdlCount}</p>
-            <p className="text-xs text-slate-400 mt-2">Total accumulated count</p>
+            <h3 className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">Half Days Taken</h3>
+            <p className="text-5xl font-black text-slate-900 mt-2">{leaveBalances.hdlCount}</p>
+            <p className="text-[10px] text-slate-400 mt-2 font-medium">Total accumulated count</p>
           </div>
         </div>
       </section>
