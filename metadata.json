@@ -1,0 +1,8 @@
+{
+  "name": "Clevrr HR",
+  "description": "A modern internal HRMS platform for managing leave balances, retention bonuses, and employee data with Firebase integration.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
