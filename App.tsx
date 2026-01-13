@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { UserProfile, LeaveBalances, RetentionBonus, ViewType } from './types';
 import Login from './components/Login';
@@ -7,6 +8,7 @@ import Profile from './components/Profile';
 import SalaryProcessing from './components/SalaryProcessing';
 import Payslips from './components/Payslips';
 import Reimbursements from './components/Reimbursements';
+import Team from './components/Team';
 import Layout from './components/Layout';
 import { auth, db, doc, getDoc, onAuthStateChanged, signInWithEmailAndPassword, signOut } from './firebase';
 
@@ -179,6 +181,9 @@ const App: React.FC = () => {
       )}
       {view === 'reimbursements' && (
         <Reimbursements user={user!} />
+      )}
+      {view === 'team' && (
+        <Team user={user!} />
       )}
     </Layout>
   );

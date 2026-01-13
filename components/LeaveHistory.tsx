@@ -48,10 +48,19 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ user }) => {
     }
   };
 
-  const formatDate = (timestamp: any) => {
+  const formatDate = (timestamp: any): string => {
     if (!timestamp) return '...';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    try {
+      if (typeof timestamp.toDate === 'function') {
+        return timestamp.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+      if (timestamp.seconds) {
+        return new Date(timestamp.seconds * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+      return new Date(timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch (e) {
+      return 'Invalid Date';
+    }
   };
 
   if (loading) {

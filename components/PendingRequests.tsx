@@ -104,10 +104,19 @@ const PendingRequests: React.FC<PendingRequestsProps> = ({ manager }) => {
     }
   };
 
-  const formatDate = (timestamp: any) => {
+  const formatDate = (timestamp: any): string => {
     if (!timestamp) return '...';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    try {
+      if (typeof timestamp.toDate === 'function') {
+        return timestamp.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      }
+      if (timestamp.seconds) {
+        return new Date(timestamp.seconds * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      }
+      return new Date(timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    } catch (e) {
+      return 'Inv';
+    }
   };
 
   if (loading) return null;

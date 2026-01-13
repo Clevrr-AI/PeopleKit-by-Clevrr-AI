@@ -117,7 +117,7 @@ export interface LeaveRequest {
   cancelledBy: string | null;
 }
 
-export type ViewType = 'dashboard' | 'apply-leave' | 'profile' | 'salaries' | 'payslips' | 'reimbursements';
+export type ViewType = 'dashboard' | 'apply-leave' | 'profile' | 'salaries' | 'payslips' | 'reimbursements' | 'team';
 
 export interface AppState {
   user: UserProfile | null;
