@@ -10,6 +10,28 @@ export interface UserProfile {
   managerId: string;
 }
 
+export interface UserMetadata {
+  bankDetails: {
+    accountNumber: string;
+    ifscCode: string;
+    bankName: string;
+    bankBranch: string;
+    chequeDriveLink: string;
+  };
+  educationDocs: {
+    marksheet10th: string;
+    marksheet12th: string;
+    collegeDegree: string;
+    lastPayslip: string;
+  };
+  personalDocs: {
+    offerLetter: string;
+    codeOfConduct: string;
+    aadhaarCard: string;
+    panCard: string;
+  };
+}
+
 export interface SalaryConfig {
   userId: string;
   baseSalary: number;
