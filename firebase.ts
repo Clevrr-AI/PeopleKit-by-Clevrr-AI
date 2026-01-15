@@ -15,18 +15,21 @@ import {
   query, 
   where, 
   orderBy, 
+  // Added limit to fix the export error in Dashboard.tsx
+  limit, 
   onSnapshot, 
   getDocs,
-  setDoc
+  setDoc,
+  GeoPoint
 } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID
+  apiKey: "AIzaSyDnqcY_PAsPmfLBt4eG7o62t7a5YV877dA",
+  authDomain: "studio-2980330480-5ba3b.firebaseapp.com",
+  projectId: "studio-2980330480-5ba3b",
+  storageBucket: "studio-2980330480-5ba3b.firebasestorage.app",
+  messagingSenderId: "1017876570620",
+  appId: "1:1017876570620:web:287e44f78d6b3b743f9279"
 };
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -51,7 +54,10 @@ export {
   query, 
   where, 
   orderBy, 
+  // Added limit to the exported members
+  limit,
   onSnapshot, 
   getDocs,
-  setDoc
+  setDoc,
+  GeoPoint
 };

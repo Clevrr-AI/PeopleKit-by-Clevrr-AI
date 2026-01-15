@@ -80,6 +80,7 @@ export interface LeaveBalances {
   slBalance: number;
   currentMonthSlUsed: number;
   hdlCount: number;
+  lateWarningLeft: number;
 }
 
 export interface BonusMonth {
@@ -117,7 +118,7 @@ export interface LeaveRequest {
   cancelledBy: string | null;
 }
 
-export type ViewType = 'dashboard' | 'apply-leave' | 'profile' | 'salaries' | 'payslips' | 'reimbursements' | 'team';
+export type ViewType = 'dashboard' | 'apply-leave' | 'profile' | 'salaries' | 'payslips' | 'reimbursements' | 'team' | 'check-in';
 
 export interface AppState {
   user: UserProfile | null;

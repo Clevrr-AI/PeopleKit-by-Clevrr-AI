@@ -9,6 +9,7 @@ import SalaryProcessing from './components/SalaryProcessing';
 import Payslips from './components/Payslips';
 import Reimbursements from './components/Reimbursements';
 import Team from './components/Team';
+import CheckIn from './components/CheckIn';
 import Layout from './components/Layout';
 import { auth, db, doc, getDoc, onAuthStateChanged, signInWithEmailAndPassword, signOut } from './firebase';
 
@@ -71,7 +72,11 @@ const App: React.FC = () => {
           }
 
           if (leaveSnap.exists()) {
-            setLeaveBalances(leaveSnap.data() as LeaveBalances);
+            const data = leaveSnap.data();
+            setLeaveBalances({
+              ...data,
+              lateWarningLeft: data.lateWarningLeft !== undefined ? data.lateWarningLeft : 3
+            } as LeaveBalances);
           } else {
             setLeaveBalances({
               clTotal: 24,
@@ -80,7 +85,8 @@ const App: React.FC = () => {
               slTotal: 12,
               slBalance: 12,
               currentMonthSlUsed: 0,
-              hdlCount: 0
+              hdlCount: 0,
+              lateWarningLeft: 3
             });
           }
 
@@ -184,6 +190,9 @@ const App: React.FC = () => {
       )}
       {view === 'team' && (
         <Team user={user!} />
+      )}
+      {view === 'check-in' && (
+        <CheckIn user={user!} />
       )}
     </Layout>
   );

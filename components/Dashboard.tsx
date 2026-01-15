@@ -1,12 +1,15 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, LeaveBalances, RetentionBonus } from '../types';
 import LeaveBalanceCard from './LeaveBalanceCard';
 import BonusCard from './BonusCard';
 import LeaveHistory from './LeaveHistory';
 import PendingRequests from './PendingRequests';
 import EscalatedRequests from './EscalatedRequests';
+import LateWarningWidget from './LateWarningWidget';
+import AttendanceTrendChart from './AttendanceTrendChart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { db, collection, query, where, orderBy, limit, onSnapshot } from '../firebase';
 
 interface DashboardProps {
   user: UserProfile;
@@ -15,6 +18,40 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ user, leaveBalances, retentionBonus }) => {
+  const [attendanceTrend, setAttendanceTrend] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!user.uid) return;
+
+    const q = query(
+      collection(db, 'attendance'),
+      where('userId', '==', user.uid),
+      orderBy('checkinAt', 'desc'),
+      limit(14)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => {
+        const attendance = doc.data();
+        const checkinDate = attendance.checkinAt.toDate();
+        const hours = checkinDate.getHours();
+        const minutes = checkinDate.getMinutes();
+        
+        return {
+          date: checkinDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+          timeValue: hours + (minutes / 60),
+          timestamp: checkinDate.getTime(),
+          label: checkinDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+      });
+      
+      // Sort chronologically for the line chart
+      setAttendanceTrend(data.sort((a, b) => a.timestamp - b.timestamp));
+    });
+
+    return () => unsubscribe();
+  }, [user.uid]);
+
   if (!leaveBalances || !retentionBonus) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -29,7 +66,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, leaveBalances, retentionBon
     );
   }
 
-  const chartData = (retentionBonus.bonusMonths || []).map(m => ({
+  const bonusChartData = (retentionBonus.bonusMonths || []).map(m => ({
     name: m.month.substring(0, 3),
     bonus: m.bonus,
     leaves: m.leaves
@@ -43,7 +80,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, leaveBalances, retentionBon
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500 text-sm">Welcome back, {user.name || 'User'}! Review your team requests below.</p>
+          <p className="text-slate-500 text-sm">Welcome back, {user.name || 'User'}! Review your personal and team metrics.</p>
         </div>
         {isManager && (
           <div className="flex items-center space-x-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-1.5 rounded-xl text-xs font-bold shadow-sm ring-1 ring-indigo-50">
@@ -54,6 +91,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, leaveBalances, retentionBon
           </div>
         )}
       </header>
+
+      {/* Top Row: Important Metrics */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1">
+          <LateWarningWidget warningsLeft={leaveBalances.lateWarningLeft} />
+        </div>
+        <div className="lg:col-span-2">
+          <AttendanceTrendChart data={attendanceTrend} />
+        </div>
+      </div>
 
       {/* Manager Specific Section */}
       {isManager && <PendingRequests manager={user} />}
@@ -135,7 +182,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, leaveBalances, retentionBon
             <h3 className="text-slate-800 font-semibold mb-6">Bonus Accumulation Trend</h3>
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
+                <BarChart data={bonusChartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />
                   <YAxis hide />
@@ -144,20 +191,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, leaveBalances, retentionBon
                     contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
                   />
                   <Bar dataKey="bonus" radius={[4, 4, 0, 0]}>
-                    {chartData.map((entry, index) => (
+                    {bonusChartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.bonus > 0 ? '#4f46e5' : '#cbd5e1'} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </div>
-            <div className="mt-4 flex items-center space-x-4 text-xs text-slate-500 overflow-x-auto pb-2">
-              {(retentionBonus.bonusMonths || []).map((m, i) => (
-                <div key={i} className="flex-shrink-0 flex items-center">
-                  <span className={`w-2 h-2 rounded-full mr-1.5 ${m.bonus > 0 ? 'bg-indigo-500' : 'bg-slate-300'}`}></span>
-                  {m.month}: {m.leaves} {m.leaves === 1 ? 'leave' : 'leaves'}
-                </div>
-              ))}
             </div>
           </div>
         </div>

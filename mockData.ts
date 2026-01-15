@@ -13,6 +13,7 @@ export const mockUser: UserProfile = {
   managerId: 'clevrr_mgr_001'
 };
 
+// Added missing lateWarningLeft property to satisfy LeaveBalances interface
 export const mockLeaveBalances: LeaveBalances = {
   clTotal: 24,
   clBalance: 16,
@@ -20,7 +21,8 @@ export const mockLeaveBalances: LeaveBalances = {
   slTotal: 12,
   slBalance: 10,
   currentMonthSlUsed: 1,
-  hdlCount: 3
+  hdlCount: 3,
+  lateWarningLeft: 3
 };
 
 export const mockRetentionBonus: RetentionBonus = {
