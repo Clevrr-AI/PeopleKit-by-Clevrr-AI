@@ -58,16 +58,6 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
       </button>
 
       <button 
-        onClick={() => handleNavClick('profile')}
-        className={`${activeView === 'profile' ? 'bg-slate-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'} group w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors`}
-      >
-        <svg className={`${activeView === 'profile' ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-500'} mr-3 h-5 w-5`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-        </svg>
-        Profile
-      </button>
-
-      <button 
         onClick={() => handleNavClick('payslips')}
         className={`${activeView === 'payslips' ? 'bg-slate-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'} group w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors`}
       >

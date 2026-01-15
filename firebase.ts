@@ -20,7 +20,9 @@ import {
   onSnapshot, 
   getDocs,
   setDoc,
-  GeoPoint
+  GeoPoint,
+  // Fix: Added missing deleteDoc import from firestore
+  deleteDoc
 } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -54,10 +56,10 @@ export {
   query, 
   where, 
   orderBy, 
-  // Added limit to the exported members
   limit,
   onSnapshot, 
   getDocs,
   setDoc,
-  GeoPoint
+  GeoPoint,
+  deleteDoc
 };
