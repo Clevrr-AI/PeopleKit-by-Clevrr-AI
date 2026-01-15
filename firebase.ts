@@ -1,29 +1,8 @@
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  getDoc, 
-  collection, 
-  addDoc, 
-  serverTimestamp, 
-  Timestamp, 
-  runTransaction, 
-  updateDoc, 
-  increment, 
-  query, 
-  where, 
-  orderBy, 
-  // Added limit to fix the export error in Dashboard.tsx
-  limit, 
-  onSnapshot, 
-  getDocs,
-  setDoc,
-  GeoPoint,
-  // Fix: Added missing deleteDoc import from firestore
-  deleteDoc
-} from 'firebase/firestore';
+// Consolidated multiline firestore imports into a single line to fix "no exported member" errors in the current environment
+import { getFirestore, doc, getDoc, collection, addDoc, serverTimestamp, Timestamp, runTransaction, updateDoc, increment, query, where, orderBy, limit, onSnapshot, getDocs, setDoc, GeoPoint, deleteDoc, enableIndexedDbPersistence } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDnqcY_PAsPmfLBt4eG7o62t7a5YV877dA",
@@ -38,6 +17,19 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// Enable Offline Persistence
+if (typeof window !== 'undefined') {
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === 'failed-precondition') {
+      // Multiple tabs open, persistence can only be enabled in one tab at a time.
+      console.warn('Persistence failed-precondition: Multiple tabs open.');
+    } else if (err.code === 'unimplemented') {
+      // The current browser does not support all of the features required to enable persistence
+      console.warn('Persistence unimplemented: Browser not supported.');
+    }
+  });
+}
 
 // Export Auth utilities
 export { onAuthStateChanged, signInWithEmailAndPassword, signOut };
@@ -56,7 +48,7 @@ export {
   query, 
   where, 
   orderBy, 
-  limit,
+  limit, 
   onSnapshot, 
   getDocs,
   setDoc,

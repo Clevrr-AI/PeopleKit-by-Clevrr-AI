@@ -126,10 +126,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
 
             <div className="flex-1 h-0 pt-5 pb-4 overflow-y-auto">
               <div className="flex items-center flex-shrink-0 px-4 space-x-3">
-                <div className="bg-indigo-600 p-1.5 rounded-lg">
-                  <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
+                <div className="5 rounded-lg">
+                  <img className="h-10 w-10 text-white" src="https://getclevrr.com/logos/favicon.png" alt="Clevrr HR Logo" />
                 </div>
                 <span className="text-xl font-bold text-slate-900 tracking-tight">Clevrr HR</span>
               </div>
@@ -162,10 +160,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
         <div className="flex flex-col w-64 border-r border-slate-200 bg-white">
           <div className="flex flex-col flex-grow pt-5 pb-4 overflow-y-auto">
             <div className="flex items-center flex-shrink-0 px-6 space-x-3">
-              <div className="bg-indigo-600 p-1.5 rounded-lg">
-                <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
+              <div className="5 rounded-lg">
+                <img className="h-10 w-10 text-white" src="https://getclevrr.com/logos/favicon.png" alt="Clevrr HR Logo" />
               </div>
               <span className="text-xl font-bold text-slate-900 tracking-tight">Clevrr HR</span>
             </div>
@@ -209,10 +205,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
               </svg>
             </button>
             <div className="flex items-center space-x-2">
-              <div className="bg-indigo-600 p-1 rounded-md">
-                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
+              <div className="rounded-md">
+                <img className="h-10 w-10 text-white" src="https://getclevrr.com/logos/favicon.png" alt="Clevrr HR Logo" />
               </div>
               <span className="text-lg font-bold text-slate-900 tracking-tight">Clevrr HR</span>
             </div>
