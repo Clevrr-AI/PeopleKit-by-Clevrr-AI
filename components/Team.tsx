@@ -1,15 +1,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserProfile, UserMetadata, LeaveRequest } from '../types';
-import { db, collection, query, where, getDocs, doc, getDoc } from '../firebase';
+import { db, collection, query, where, getDocs, doc, getDoc, Timestamp } from '../firebase';
 
 interface TeamProps {
   user: UserProfile;
 }
 
+type CheckinStatus = 'Not Checked In' | 'Working from Home' | 'Out of Office' | 'Available' | 'On Leave';
+
 interface MemberWithStatus extends UserProfile {
   isOnLeave: boolean;
   leaveUntil?: string;
+  checkinStatus: CheckinStatus;
 }
 
 const Team: React.FC<TeamProps> = ({ user }) => {
@@ -35,12 +38,31 @@ const Team: React.FC<TeamProps> = ({ user }) => {
         const leavesSnapshot = await getDocs(leavesQ);
         const approvedLeaves = leavesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
 
+        // 3. Fetch today's attendance
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        const attendanceQ = query(
+          collection(db, 'attendance'),
+          where('checkinAt', '>=', Timestamp.fromDate(todayStart)),
+          where('checkinAt', '<=', Timestamp.fromDate(todayEnd))
+        );
+        const attendanceSnapshot = await getDocs(attendanceQ);
+        const attendanceMap = new Map();
+        attendanceSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          attendanceMap.set(data.userId, data);
+        });
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
         const list: MemberWithStatus[] = [];
         usersSnapshot.forEach((doc) => {
           const data = doc.data() as any;
+          const uid = doc.id;
           
           // Convert Joining Date Timestamp to String
           let joiningDateStr = 'Unknown';
@@ -56,7 +78,7 @@ const Team: React.FC<TeamProps> = ({ user }) => {
 
           // Check if this user is on leave today
           const activeLeave = approvedLeaves.find(leave => {
-            if (leave.userId !== doc.id) return false;
+            if (leave.userId !== uid) return false;
             
             const start = leave.startDate.toDate ? leave.startDate.toDate() : new Date(leave.startDate);
             const end = leave.endDate.toDate ? leave.endDate.toDate() : new Date(leave.endDate);
@@ -68,23 +90,51 @@ const Team: React.FC<TeamProps> = ({ user }) => {
           });
 
           let leaveUntilStr = undefined;
+          let checkinStatus: CheckinStatus = 'Not Checked In';
+
           if (activeLeave) {
              const endDate = activeLeave.endDate.toDate ? activeLeave.endDate.toDate() : new Date(activeLeave.endDate);
              leaveUntilStr = endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+             checkinStatus = 'On Leave';
+          } else {
+            // Logic for Check-in status if not on leave
+            const attendance = attendanceMap.get(uid);
+            if (attendance) {
+              if (attendance.isWfh) {
+                checkinStatus = 'Working from Home';
+              } else if (attendance.isOutOfOffice) {
+                checkinStatus = 'Out of Office';
+              } else {
+                checkinStatus = 'Available';
+              }
+            } else {
+              checkinStatus = 'Not Checked In';
+            }
           }
 
           list.push({ 
-            uid: doc.id, 
+            uid: uid, 
             ...data,
             joiningDate: joiningDateStr,
             isOnLeave: !!activeLeave,
-            leaveUntil: leaveUntilStr
+            leaveUntil: leaveUntilStr,
+            checkinStatus: checkinStatus
           } as MemberWithStatus);
         });
 
-        // Sort: Active first, then by name
+        // Sort: Available first, then WFH/OOO, then On Leave, then Not Checked In
+        const statusOrder: Record<CheckinStatus, number> = {
+          'Available': 0,
+          'Working from Home': 1,
+          'Out of Office': 2,
+          'On Leave': 3,
+          'Not Checked In': 4
+        };
+
         list.sort((a, b) => {
-          if (a.isOnLeave !== b.isOnLeave) return a.isOnLeave ? 1 : -1;
+          if (statusOrder[a.checkinStatus] !== statusOrder[b.checkinStatus]) {
+            return statusOrder[a.checkinStatus] - statusOrder[b.checkinStatus];
+          }
           return a.name.localeCompare(b.name);
         });
 
@@ -110,6 +160,23 @@ const Team: React.FC<TeamProps> = ({ user }) => {
       setSelectedMember({ profile: member, metadata: null });
     } finally {
       setLoadingDetails(false);
+    }
+  };
+
+  const getStatusBadgeStyles = (status: CheckinStatus) => {
+    switch (status) {
+      case 'Available':
+        return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+      case 'Working from Home':
+        return 'bg-indigo-50 text-indigo-600 border-indigo-100';
+      case 'Out of Office':
+        return 'bg-amber-50 text-amber-600 border-amber-100';
+      case 'On Leave':
+        return 'bg-slate-100 text-slate-500 border-slate-200';
+      case 'Not Checked In':
+        return 'bg-rose-50 text-rose-500 border-rose-100';
+      default:
+        return 'bg-slate-50 text-slate-500 border-slate-100';
     }
   };
 
@@ -171,26 +238,35 @@ const Team: React.FC<TeamProps> = ({ user }) => {
                 : 'bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-100'
               }`}
             >
-              {/* Profile Image with Grayscale filter if on leave */}
+              {/* Profile Image */}
               <div className="relative mb-4">
                 <img 
                   className={`h-20 w-20 rounded-3xl object-cover ring-4 transition-all duration-300 ${
                     member.isOnLeave 
                     ? 'grayscale ring-slate-100' 
-                    : 'ring-indigo-50 group-hover:ring-indigo-100'
+                    : member.checkinStatus === 'Not Checked In'
+                      ? 'grayscale ring-slate-100'
+                      : 'ring-indigo-50 group-hover:ring-indigo-100'
                   }`} 
                   src={`https://picsum.photos/seed/${member.uid}/200`} 
                   alt={member.name} 
                 />
-                {!member.isOnLeave && (
+                {member.checkinStatus === 'Available' && (
                   <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 border-4 border-white rounded-full"></div>
+                )}
+                {member.checkinStatus === 'Working from Home' && (
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-indigo-500 border-4 border-white rounded-full flex items-center justify-center">
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
                 )}
               </div>
 
-              <h4 className={`text-base font-black line-clamp-1 ${member.isOnLeave ? 'text-slate-400' : 'text-slate-900'}`}>
+              <h4 className={`text-base font-black line-clamp-1 ${member.isOnLeave || member.checkinStatus === 'Not Checked In' ? 'text-slate-400' : 'text-slate-900'}`}>
                 {member.name}
               </h4>
-              <p className={`text-xs font-bold mb-1 ${member.isOnLeave ? 'text-slate-400' : 'text-indigo-600'}`}>
+              <p className={`text-xs font-bold mb-1 ${member.isOnLeave || member.checkinStatus === 'Not Checked In' ? 'text-slate-400' : 'text-indigo-600'}`}>
                 {member.title}
               </p>
               <p className="text-[10px] text-slate-400 font-bold mb-4 uppercase tracking-widest">
@@ -199,15 +275,9 @@ const Team: React.FC<TeamProps> = ({ user }) => {
 
               {/* Status Badge */}
               <div className="mb-4">
-                {member.isOnLeave ? (
-                  <span className="px-3 py-1 bg-slate-200/50 text-slate-500 rounded-full text-[10px] font-black uppercase tracking-wider">
-                    On Leave till {member.leaveUntil}
-                  </span>
-                ) : (
-                  <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-wider">
-                    Available
-                  </span>
-                )}
+                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border transition-colors ${getStatusBadgeStyles(member.checkinStatus)}`}>
+                  {member.checkinStatus === 'On Leave' ? `On Leave till ${member.leaveUntil}` : member.checkinStatus}
+                </span>
               </div>
 
               <button 

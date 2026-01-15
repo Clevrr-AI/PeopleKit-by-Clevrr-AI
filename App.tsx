@@ -22,6 +22,31 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Handle initial routing and back/forward navigation
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#/', '');
+      const validViews: ViewType[] = ['dashboard', 'apply-leave', 'profile', 'salaries', 'payslips', 'reimbursements', 'team', 'check-in'];
+      if (validViews.includes(hash as ViewType)) {
+        setView(hash as ViewType);
+      } else if (!hash) {
+        setView('dashboard');
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    handleHashChange(); // Initial check
+
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Update hash when view state changes programmatically
+  useEffect(() => {
+    if (isAuthenticated) {
+      window.location.hash = `#/${view}`;
+    }
+  }, [view, isAuthenticated]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
@@ -109,7 +134,7 @@ const App: React.FC = () => {
         setUser(null);
         setLeaveBalances(null);
         setRetentionBonus(null);
-        setView('dashboard');
+        // Note: Hash will remain if the user hits /#/check-in while unauthenticated
       }
       setLoading(false);
     });
@@ -133,6 +158,7 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      window.location.hash = ''; // Clear route on logout
     } catch (err) {
       console.error("Logout error:", err);
     }

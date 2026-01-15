@@ -16,6 +16,9 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
 
   const handleNavClick = (view: ViewType) => {
     setView(view);
+    // Routing is handled in App.tsx via useEffect on view change, 
+    // but we can also set the hash here for immediate feedback
+    window.location.hash = `#/${view}`;
     setIsMobileMenuOpen(false);
   };
 

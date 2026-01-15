@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, LeaveBalances } from '../types';
-import { db, collection, addDoc, Timestamp, GeoPoint, doc, getDoc, runTransaction, increment } from '../firebase';
+import { db, collection, addDoc, Timestamp, GeoPoint, doc, getDoc, runTransaction, increment, query, where, orderBy, onSnapshot } from '../firebase';
 
 interface CheckInProps {
   user: UserProfile;
@@ -18,6 +18,52 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
   const [lateDetail, setLateDetail] = useState<string | null>(null);
   const [distanceInfo, setDistanceInfo] = useState<number | null>(null);
   const [currentCoords, setCurrentCoords] = useState<{lat: number, lng: number} | null>(null);
+  
+  // Founder state for daily log
+  const [dailyCheckins, setDailyCheckins] = useState<any[]>([]);
+  const [loadingLog, setLoadingLog] = useState(false);
+  const isFounder = user.role === 'Founder';
+
+  // Fetch daily log for founders
+  useEffect(() => {
+    if (!isFounder) return;
+    
+    setLoadingLog(true);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const q = query(
+      collection(db, 'attendance'),
+      where('checkinAt', '>=', Timestamp.fromDate(todayStart)),
+      where('checkinAt', '<=', Timestamp.fromDate(todayEnd)),
+      orderBy('checkinAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const records = [];
+      for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        // We might want to fetch user names if they aren't in the attendance record
+        // For simplicity, we'll assume we might need a lookup if name isn't present
+        records.push({ id: docSnap.id, ...data });
+      }
+      
+      // Resolve names if they aren't stored in attendance (assuming they might not be for now)
+      // Optimally, store 'userName' in attendance record at check-in time
+      const recordsWithNames = await Promise.all(records.map(async (r) => {
+        if (r.userName) return r;
+        const userSnap = await getDoc(doc(db, 'users', r.userId));
+        return { ...r, userName: userSnap.exists() ? userSnap.data().name : 'Unknown User' };
+      }));
+
+      setDailyCheckins(recordsWithNames);
+      setLoadingLog(false);
+    });
+
+    return () => unsubscribe();
+  }, [isFounder]);
 
   // Haversine formula to calculate distance in meters
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -120,6 +166,7 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
         const attendanceData: any = {
           checkinAt: Timestamp.now(),
           userId: user.uid,
+          userName: user.name, // Storing name directly for easier log access
           latLong: new GeoPoint(lat, lng),
           isHalfDay: false,
           isWfh: isWfh,
@@ -150,8 +197,8 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
   };
 
   return (
-    <div className="max-w-xl mx-auto py-12 px-4">
-      <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden text-center relative">
+    <div className="max-w-4xl mx-auto py-12 px-4 space-y-12">
+      <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden text-center relative max-w-xl mx-auto">
         <div className={`h-2 transition-all duration-500 ${status === 'out-of-range' ? 'bg-amber-400' : 'bg-gradient-to-r from-emerald-400 to-teal-500'}`}></div>
         
         <div className="p-10 space-y-8">
@@ -194,7 +241,7 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
                     <h3 className="font-black text-lg">Location Warning</h3>
                   </div>
                   <p className="text-amber-800 text-sm font-medium leading-relaxed">
-                    You are currently <strong>{distanceInfo}m</strong> away. Office check-in is restricted to a <strong>200m</strong> radius.
+                    You are currently <strong>{distanceInfo}m</strong> away. Office check-in is restricted to a <strong>{MAX_DISTANCE_METERS}m</strong> radius.
                   </p>
                   <p className="text-amber-700 text-xs mt-2 italic font-medium">Please select a remote check-in option below:</p>
                 </div>
@@ -297,6 +344,112 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
           </div>
         </div>
       </div>
+
+      {/* Founder View - Daily Log */}
+      {isFounder && (
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-bottom-6 duration-700 delay-300">
+          <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Daily Attendance Log</h2>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Live Feed - {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+            </div>
+            <div className="bg-indigo-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">
+              {dailyCheckins.length} Checked In
+            </div>
+          </div>
+          
+          {loadingLog ? (
+            <div className="p-20 text-center">
+              <svg className="animate-spin h-8 w-8 text-indigo-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <p className="mt-4 text-slate-400 font-bold text-sm">Synchronizing log...</p>
+            </div>
+          ) : dailyCheckins.length === 0 ? (
+            <div className="p-20 text-center">
+              <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-200">
+                <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-slate-400 font-black text-lg">No check-ins yet today</p>
+              <p className="text-slate-400 text-sm font-medium">Data will appear as employees mark their presence.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-100">
+                <thead className="bg-slate-50/30">
+                  <tr>
+                    <th className="px-8 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Employee</th>
+                    <th className="px-8 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Time</th>
+                    <th className="px-8 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Method</th>
+                    <th className="px-8 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {dailyCheckins.map((record) => (
+                    <tr key={record.id} className="hover:bg-indigo-50/30 transition-colors group">
+                      <td className="px-8 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <img className="h-9 w-9 rounded-2xl mr-3 border border-slate-100 group-hover:border-indigo-200 transition-colors" src={`https://picsum.photos/seed/${record.userId}/100`} alt="" />
+                          <div>
+                            <div className="text-sm font-black text-slate-900">{record.userName || 'Loading...'}</div>
+                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">{record.userId.slice(0, 8)}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-4 whitespace-nowrap">
+                        <span className="text-sm font-black text-slate-700">
+                          {record.checkinAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </td>
+                      <td className="px-8 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          {record.isWfh ? (
+                            <span className="flex items-center text-[10px] font-black text-indigo-500 uppercase">
+                              <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                              </svg>
+                              WFH
+                            </span>
+                          ) : record.isOutOfOffice ? (
+                            <span className="flex items-center text-[10px] font-black text-slate-500 uppercase">
+                              <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                              OOO
+                            </span>
+                          ) : (
+                            <span className="flex items-center text-[10px] font-black text-emerald-500 uppercase">
+                              <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                              </svg>
+                              In Office
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-8 py-4 whitespace-nowrap">
+                        {record.isLate ? (
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${record.lateType === 1 ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
+                            {record.lateType === 1 ? 'Full Day Late' : 'Half Day Late'}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-md text-[10px] font-black uppercase tracking-wider">
+                            On Time
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
