@@ -142,7 +142,6 @@ const Payslips: React.FC<PayslipsProps> = ({ user }) => {
                         <div className="space-y-3">
                           <div className="flex justify-between items-center py-2">
                             <span className="text-sm font-bold text-slate-600">Basic Salary</span>
-                            {/* Basic Salary = Net - Reimbursements + Total Deductions */}
                             <span className="text-sm font-black text-slate-900">₹{(selectedPayslip.netSalary - (selectedPayslip.reimbursements || 0) + selectedPayslip.totalDeductions).toLocaleString('en-IN')}</span>
                           </div>
                         </div>
@@ -184,6 +183,15 @@ const Payslips: React.FC<PayslipsProps> = ({ user }) => {
                             </div>
                             <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.leaveDeductions.toLocaleString('en-IN')}</span>
                           </div>
+                          {selectedPayslip.deductions.lateDays > 0 && (
+                            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                              <div>
+                                <p className="text-sm font-bold text-slate-600">Late Deductions</p>
+                                <p className="text-[10px] text-slate-400">{selectedPayslip.deductions.lateDays} Unpaid Late Pass(es)</p>
+                              </div>
+                              <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.lateDeductions.toLocaleString('en-IN')}</span>
+                            </div>
+                          )}
                         </div>
                       </section>
                     </div>
@@ -207,7 +215,6 @@ const Payslips: React.FC<PayslipsProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Print View Style (Hidden normally) */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
           body * { visibility: hidden; }

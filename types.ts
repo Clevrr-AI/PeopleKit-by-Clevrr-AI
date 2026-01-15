@@ -50,8 +50,10 @@ export interface Payslip {
   deductions: {
     tax: number;
     leaveDeductions: number;
+    lateDeductions: number; // New field
     sl: number;
     cl: number;
+    lateDays: number; // New field
   };
   reimbursements: number;
   netSalary: number;

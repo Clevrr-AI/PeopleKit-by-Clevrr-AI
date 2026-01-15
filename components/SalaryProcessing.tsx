@@ -28,6 +28,9 @@ const SalaryProcessing: React.FC = () => {
       let totalDed = 0;
       let totalReim = 0;
 
+      const startOfMonth = new Date(selectedYear, selectedMonth, 1);
+      const endOfMonth = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999);
+
       for (const user of allUsers) {
         // 2. Fetch Salary Config
         const configSnap = await getDoc(doc(db, 'salaryConfig', user.uid));
@@ -39,9 +42,6 @@ const SalaryProcessing: React.FC = () => {
         const payPerDay = baseSalary / 30;
 
         // 3. Fetch Approved Leaves for the selected period
-        const startOfMonth = new Date(selectedYear, selectedMonth, 1);
-        const endOfMonth = new Date(selectedYear, selectedMonth + 1, 0);
-
         const leaveQ = query(
           collection(db, 'leaveRequests'),
           where('userId', '==', user.uid),
@@ -60,10 +60,27 @@ const SalaryProcessing: React.FC = () => {
 
         const extraCL = Math.max(0, actualCL - 4);
         const extraSL = Math.max(0, actualSL - 2);
-        const unpaidDays = extraCL + extraSL;
-        const leaveDeductionAmount = unpaidDays * payPerDay;
+        const unpaidLeaveDays = extraCL + extraSL;
+        const leaveDeductionAmount = unpaidLeaveDays * payPerDay;
 
-        // 4. Fetch Approved Reimbursements for the selected month
+        // 4. Fetch Late Check-ins for the selected month
+        const attendanceQ = query(
+          collection(db, 'attendance'),
+          where('userId', '==', user.uid),
+          where('isLate', '==', true)
+        );
+        const attendanceSnap = await getDocs(attendanceQ);
+        const lateAttendances = attendanceSnap.docs.map(d => d.data())
+          .filter(a => {
+            const aDate = a.checkinAt.toDate();
+            return aDate >= startOfMonth && aDate <= endOfMonth;
+          });
+        
+        // Sum the lateType (0.5 or 1)
+        const lateDays = lateAttendances.reduce((acc, curr) => acc + (curr.lateType || 0), 0);
+        const lateDeductionAmount = lateDays * payPerDay;
+
+        // 5. Fetch Approved Reimbursements for the selected month
         const reimQ = query(
           collection(db, 'reimbursements'),
           where('userId', '==', user.uid),
@@ -72,15 +89,14 @@ const SalaryProcessing: React.FC = () => {
         const reimSnap = await getDocs(reimQ);
         const reimbursements = reimSnap.docs.map(d => d.data() as Reimbursement)
           .filter(r => {
-            // Check if dateOfPayment (YYYY-MM-DD) falls in selected month/year
             const rDate = new Date(r.dateOfPayment);
             return rDate.getMonth() === selectedMonth && rDate.getFullYear() === selectedYear;
           });
         
         const totalReimbursementsForUser = reimbursements.reduce((acc, curr) => acc + curr.amount, 0);
 
-        const totalDeductions = tax + leaveDeductionAmount;
-        // Final Salary = Base - Tax - Leaves + Reimbursements
+        const totalDeductions = tax + leaveDeductionAmount + lateDeductionAmount;
+        // Final Salary = Base - Tax - Leaves - Late + Reimbursements
         const netSalary = baseSalary - totalDeductions + totalReimbursementsForUser;
 
         calcs.push({
@@ -89,10 +105,12 @@ const SalaryProcessing: React.FC = () => {
           baseSalary,
           tax,
           leaveDeductions: leaveDeductionAmount,
+          lateDeductions: lateDeductionAmount,
           reimbursements: totalReimbursementsForUser,
           slCount: actualSL,
           clCount: actualCL,
-          unpaidDays,
+          lateDays,
+          unpaidLeaveDays,
           netSalary,
           totalDeductions
         });
@@ -128,8 +146,10 @@ const SalaryProcessing: React.FC = () => {
           deductions: {
             tax: calc.tax,
             leaveDeductions: calc.leaveDeductions,
+            lateDeductions: calc.lateDeductions,
             sl: calc.slCount,
             cl: calc.clCount,
+            lateDays: calc.lateDays
           },
           reimbursements: calc.reimbursements,
           netSalary: calc.netSalary,
@@ -217,7 +237,7 @@ const SalaryProcessing: React.FC = () => {
                   <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Employee</th>
                   <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Base Salary</th>
                   <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Tax</th>
-                  <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Leave Ded.</th>
+                  <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Deductions</th>
                   <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Reimb.</th>
                   <th className="px-6 py-3 text-right text-[10px] font-bold text-slate-500 uppercase">Net Salary</th>
                 </tr>
@@ -237,8 +257,17 @@ const SalaryProcessing: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">₹{c.baseSalary.toLocaleString('en-IN')}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-rose-500">-₹{c.tax.toLocaleString('en-IN')}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')}</div>
-                      <div className="text-[10px] text-slate-400 font-bold uppercase">{c.unpaidDays} Unpaid Days</div>
+                      <div className="space-y-1">
+                        {c.leaveDeductions > 0 && (
+                          <div className="text-sm text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} <span className="text-[10px] text-slate-400 font-bold ml-1">({c.unpaidLeaveDays} Unpaid Leaves)</span></div>
+                        )}
+                        {c.lateDeductions > 0 && (
+                          <div className="text-sm text-amber-600">-₹{c.lateDeductions.toLocaleString('en-IN')} <span className="text-[10px] text-slate-400 font-bold ml-1">({c.lateDays} Late Days)</span></div>
+                        )}
+                        {c.leaveDeductions === 0 && c.lateDeductions === 0 && (
+                          <span className="text-xs text-slate-400 italic">No deductions</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-bold">+₹{c.reimbursements.toLocaleString('en-IN')}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
@@ -260,7 +289,7 @@ const SalaryProcessing: React.FC = () => {
             </svg>
           </div>
           <h3 className="text-lg font-bold text-slate-900">Run Payroll</h3>
-          <p className="text-slate-500 text-sm mt-1 max-w-sm mx-auto">Select the period and click calculate to preview the payout for {months[selectedMonth]} {selectedYear}. Approved reimbursements for this month will be added automatically.</p>
+          <p className="text-slate-500 text-sm mt-1 max-w-sm mx-auto">Select the period and click calculate to preview the payout for {months[selectedMonth]} {selectedYear}. Late check-ins and extra leaves are calculated as deductions.</p>
         </div>
       )}
     </div>
