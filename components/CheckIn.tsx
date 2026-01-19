@@ -11,7 +11,7 @@ interface CheckInProps {
 // Office Coordinates
 const OFFICE_LAT = 12.910490;
 const OFFICE_LNG = 77.635276;
-const MAX_DISTANCE_METERS = 200;
+const MAX_DISTANCE_METERS = 100;
 
 const CheckIn: React.FC<CheckInProps> = ({ user }) => {
   const [status, setStatus] = useState<'idle' | 'locating' | 'processing' | 'success' | 'error' | 'out-of-range'>('idle');
@@ -20,7 +20,7 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
   const [distanceInfo, setDistanceInfo] = useState<number | null>(null);
   const [currentCoords, setCurrentCoords] = useState<{lat: number, lng: number} | null>(null);
   
-  // Daily log state for all users
+  // Founder state for daily log
   const [dailyCheckins, setDailyCheckins] = useState<any[]>([]);
   const [loadingLog, setLoadingLog] = useState(false);
   const [rejectionAction, setRejectionAction] = useState<{ id: string; reason: string } | null>(null);
@@ -107,6 +107,10 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
 
     setStatus('locating');
     setMessage('Acquiring your location...');
+    setDistanceInfo(null);
+    setCurrentCoords(null);
+    setLateDetail(null);
+
     if (!navigator.geolocation) {
       setStatus('error');
       setMessage('Geolocation is not supported by your browser.');
@@ -126,8 +130,9 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
         await submitAttendance(latitude, longitude, false, false);
       },
       (error) => {
+        console.error("Geolocation error", error);
         setStatus('error');
-        setMessage('Unable to retrieve your location.');
+        setMessage('Unable to retrieve your location. Please ensure location services are enabled.');
       },
       { enableHighAccuracy: true }
     );
@@ -156,14 +161,22 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
 
         if (isActuallyLate) {
           if (warningsLeft > 0) {
+            // Option A: Consume a warning
+            const newWarningCount = warningsLeft - 1;
             transaction.update(balanceRef, { lateWarningLeft: increment(-1) });
             finalIsLate = false;
-            lateMsg = `Late arrival warning used. ${warningsLeft - 1} left.`;
+            finalLateType = null;
+            lateMsg = `Late arrival warning used. ${newWarningCount} warnings remaining.`;
           } else {
+            // Option B: All warnings exhausted, mark as late
             finalIsLate = true;
             finalLateType = currentTimeInMinutes >= FULL_DAY_LATE_MINUTES ? 1 : 0.5;
             lateMsg = `Warnings exhausted. Marked as ${finalLateType === 1 ? 'Full' : 'Half'} Day Late.`;
           }
+        } else {
+          // On time
+          finalIsLate = false;
+          finalLateType = null;
         }
 
         const attendanceData: any = {
@@ -189,16 +202,18 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
 
       setStatus('success');
       setLateDetail(lateMsg);
-      setMessage(isWfh ? "WFH submitted." : isOoo ? "OOO submitted." : "Successfully checked in!");
+      if (isWfh) setMessage(`WFH request submitted for ${now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}.`);
+      else if (isOoo) setMessage(`OOO request submitted for ${now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}.`);
+      else setMessage(`Successfully checked in at ${now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}!`);
     } catch (error: any) {
+      console.error("Check-in error", error);
       setStatus('error');
-      setMessage('Failed to save attendance.');
+      setMessage('Failed to save attendance. Please try again.');
     }
   };
 
   return (
     <div className="max-w-4xl mx-auto py-12 px-4 space-y-12">
-      {/* Check In Widget */}
       <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden text-center relative max-w-xl mx-auto">
         <div className={`h-2 transition-all duration-500 ${hasCheckedInToday ? 'bg-emerald-200' : status === 'out-of-range' ? 'bg-amber-400' : 'bg-gradient-to-r from-emerald-400 to-teal-500'}`}></div>
         <div className="p-10 space-y-8">
@@ -215,26 +230,71 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
                   <svg className="w-12 h-12 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M5 13l4 4L19 7" strokeWidth={3} /></svg>
                 </div>
                 <h3 className="text-2xl font-bold text-slate-900">Success!</h3>
-                <p className="text-emerald-600 font-medium mt-4">{message}</p>
-                <button onClick={() => setStatus('idle')} className="mt-8 text-sm font-bold text-slate-400 hover:text-slate-600 underline">Done</button>
+                <div className="mt-4 space-y-2">
+                  <p className="text-emerald-600 font-medium max-w-xs mx-auto">{message}</p>
+                  {lateDetail && (
+                    <div className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold border border-indigo-100 inline-block">
+                      {lateDetail}
+                    </div>
+                  )}
+                </div>
+                <button 
+                  onClick={() => setStatus('idle')}
+                  className="mt-8 text-sm font-bold text-slate-400 hover:text-slate-600 underline"
+                >
+                  Done
+                </button>
               </div>
             ) : status === 'out-of-range' ? (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="bg-amber-50 border border-amber-200 p-6 rounded-[2rem] text-left">
-                  <h3 className="font-black text-lg text-amber-700 mb-1">Location Warning</h3>
-                  <p className="text-amber-800 text-sm font-medium">You are <strong>{distanceInfo}m</strong> away. Office check-in radius is <strong>{MAX_DISTANCE_METERS}m</strong>.</p>
+                  <div className="flex items-center space-x-3 mb-3 text-amber-700">
+                    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <h3 className="font-black text-lg">Location Warning</h3>
+                  </div>
+                  <p className="text-amber-800 text-sm font-medium leading-relaxed">
+                    You are currently <strong>{distanceInfo}m</strong> away. Office check-in is restricted to a <strong>{MAX_DISTANCE_METERS}m</strong> radius.
+                  </p>
+                  <p className="text-amber-700 text-xs mt-2 italic font-medium">Please select a remote check-in option below:</p>
                 </div>
+
                 <div className="grid grid-cols-2 gap-4">
-                  <button onClick={() => submitAttendance(currentCoords!.lat, currentCoords!.lng, true, false)} className="flex flex-col items-center p-6 bg-white border-2 border-indigo-100 hover:border-indigo-600 rounded-3xl transition-all">
+                  <button 
+                    onClick={() => submitAttendance(currentCoords!.lat, currentCoords!.lng, true, false)}
+                    className="flex flex-col items-center justify-center p-6 bg-white border-2 border-indigo-100 hover:border-indigo-600 rounded-3xl group transition-all"
+                  >
+                    <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-3 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                      <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                      </svg>
+                    </div>
                     <span className="text-sm font-black text-slate-900">Mark as WFH</span>
                     <span className="text-[10px] text-slate-400 font-bold uppercase mt-1">Pending Approval</span>
                   </button>
-                  <button onClick={() => submitAttendance(currentCoords!.lat, currentCoords!.lng, false, true)} className="flex flex-col items-center p-6 bg-white border-2 border-slate-100 hover:border-slate-800 rounded-3xl transition-all">
+
+                  <button 
+                    onClick={() => submitAttendance(currentCoords!.lat, currentCoords!.lng, false, true)}
+                    className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-100 hover:border-slate-800 rounded-3xl group transition-all"
+                  >
+                    <div className="w-12 h-12 bg-slate-50 text-slate-600 rounded-2xl flex items-center justify-center mb-3 group-hover:bg-slate-800 group-hover:text-white transition-colors">
+                      <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </div>
                     <span className="text-sm font-black text-slate-900">Mark as OOO</span>
                     <span className="text-[10px] text-slate-400 font-bold uppercase mt-1">Pending Approval</span>
                   </button>
                 </div>
-                <button onClick={() => setStatus('idle')} className="text-sm font-bold text-slate-400 underline">Try again</button>
+                
+                <button 
+                  onClick={() => setStatus('idle')}
+                  className="text-sm font-bold text-slate-400 hover:text-slate-600"
+                >
+                  Try location again
+                </button>
               </div>
             ) : (
               <button 
@@ -260,12 +320,41 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
                   </>
                 ) : (
                   <>
+                    <svg className="w-20 h-20 text-white mb-2 transform group-hover:-translate-y-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
                     <span className="text-2xl font-black text-white tracking-tight">CHECK IN</span>
                     <span className="text-emerald-100 text-sm mt-1 font-medium">Tap to mark attendance</span>
                   </>
                 )}
               </button>
             )}
+          </div>
+
+          {status === 'error' && (
+             <div className="bg-red-50 border border-red-100 text-red-700 p-4 rounded-xl text-sm font-medium animate-in fade-in slide-in-from-bottom-2">
+               {message}
+             </div>
+          )}
+          
+          {distanceInfo !== null && status !== 'success' && status !== 'out-of-range' && (
+            <p className="text-xs text-slate-400 font-medium">
+              Distance to office: <span className={distanceInfo > MAX_DISTANCE_METERS ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>{distanceInfo}m</span>
+            </p>
+          )}
+
+          <div className="pt-8 border-t border-slate-100">
+             <div className="flex justify-center items-center space-x-6 text-xs text-slate-400">
+               <div className="flex items-center">
+                 <div className="w-2 h-2 bg-slate-300 rounded-full mr-2"></div>
+                 Reporting time: 10:30 AM
+               </div>
+               <div className="flex items-center">
+                 <div className="w-2 h-2 bg-slate-300 rounded-full mr-2"></div>
+                 Radius: {MAX_DISTANCE_METERS}m
+               </div>
+             </div>
           </div>
         </div>
       </div>
