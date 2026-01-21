@@ -1,5 +1,4 @@
-
-const CACHE_NAME = 'clevrr-hr-v1';
+const CACHE_NAME = 'clevrr-hr-v1.0.9';
 const ASSETS = [
   '/',
   '/index.html',
@@ -15,8 +14,22 @@ self.addEventListener('install', (event) => {
   );
 });
 
+// Activate event - clean up old caches
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    })
+  );
+});
+
 self.addEventListener('fetch', (event) => {
-  // Only cache GET requests
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
@@ -24,7 +37,6 @@ self.addEventListener('fetch', (event) => {
       if (cachedResponse) return cachedResponse;
 
       return fetch(event.request).then((response) => {
-        // Cache external assets (Tailwind, Google Fonts, ESM.sh)
         if (event.request.url.includes('cdn') || 
             event.request.url.includes('fonts') || 
             event.request.url.includes('esm.sh')) {
@@ -35,11 +47,17 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       }).catch(() => {
-        // Fallback for offline if not in cache
         if (event.request.mode === 'navigate') {
           return caches.match('/index.html');
         }
       });
     })
   );
+});
+
+// Handle 'SKIP_WAITING' message from the main application
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });

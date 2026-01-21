@@ -22,6 +22,48 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // PWA Update State
+  const [showUpdateToast, setShowUpdateToast] = useState(false);
+  const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
+
+  // PWA Update Lifecycle Management
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      // 1. Check for existing waiting worker on load
+      navigator.serviceWorker.getRegistration().then(reg => {
+        if (reg?.waiting) {
+          setWaitingWorker(reg.waiting);
+          setShowUpdateToast(true);
+        }
+
+        // 2. Listen for new worker installation
+        reg?.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                setWaitingWorker(newWorker);
+                setShowUpdateToast(true);
+              }
+            });
+          }
+        });
+      });
+
+      // 3. Listen for the controllerchange event to reload the page
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+    }
+  }, []);
+
+  const handleUpdateApp = () => {
+    waitingWorker?.postMessage({ type: 'SKIP_WAITING' });
+  };
+
   // Handle initial routing and back/forward navigation
   useEffect(() => {
     const handleHashChange = () => {
@@ -63,7 +105,6 @@ const App: React.FC = () => {
           if (userSnap.exists()) {
             const userData = userSnap.data();
             
-            // Helper to handle Timestamp or String for joiningDate
             let joiningDateStr = 'Unknown';
             if (userData.joiningDate) {
               if (typeof userData.joiningDate.toDate === 'function') {
@@ -134,7 +175,6 @@ const App: React.FC = () => {
         setUser(null);
         setLeaveBalances(null);
         setRetentionBonus(null);
-        // Note: Hash will remain if the user hits /#/check-in while unauthenticated
       }
       setLoading(false);
     });
@@ -158,7 +198,7 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      window.location.hash = ''; // Clear route on logout
+      window.location.hash = '';
     } catch (err) {
       console.error("Logout error:", err);
     }
@@ -192,6 +232,32 @@ const App: React.FC = () => {
           {error}
         </div>
       )}
+
+      {/* PWA Update Notification Toast */}
+      {showUpdateToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] w-[90%] max-w-md animate-in slide-in-from-bottom-10 duration-500">
+          <div className="bg-slate-900 text-white p-5 rounded-[2rem] shadow-2xl flex items-center justify-between border border-white/10 backdrop-blur-md">
+            <div className="flex items-center space-x-4">
+              <div className="h-10 w-10 bg-indigo-500 rounded-2xl flex items-center justify-center animate-bounce">
+                <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-black tracking-tight">Update Available</p>
+                <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">A new version is ready</p>
+              </div>
+            </div>
+            <button 
+              onClick={handleUpdateApp}
+              className="bg-white text-slate-900 px-6 py-2.5 rounded-xl text-xs font-black hover:bg-indigo-50 transition-all active:scale-95 whitespace-nowrap"
+            >
+              Refresh Now
+            </button>
+          </div>
+        </div>
+      )}
+
       {view === 'dashboard' && (
         <Dashboard 
           user={user!}
