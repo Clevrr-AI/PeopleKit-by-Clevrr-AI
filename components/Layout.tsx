@@ -16,8 +16,6 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
 
   const handleNavClick = (view: ViewType) => {
     setView(view);
-    // Routing is handled in App.tsx via useEffect on view change, 
-    // but we can also set the hash here for immediate feedback
     window.location.hash = `#/${view}`;
     setIsMobileMenuOpen(false);
   };
@@ -135,7 +133,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
                 <NavContent />
               </nav>
             </div>
-            <div className="flex-shrink-0 flex border-t border-slate-200 p-4">
+            <div className="flex-shrink-0 flex border-t border-slate-200 p-4 flex-col space-y-2">
               <div className="flex-shrink-0 group block w-full">
                 <div className="flex items-center">
                   <div className="cursor-pointer" onClick={() => handleNavClick('profile')}>
@@ -149,6 +147,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
                   </div>
                 </div>
               </div>
+              <div className="text-[10px] text-slate-300 font-bold uppercase tracking-widest text-center pt-2">v1.0.2</div>
             </div>
           </div>
           <div className="flex-shrink-0 w-14"></div>
@@ -169,7 +168,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
               <NavContent />
             </nav>
           </div>
-          <div className="flex-shrink-0 flex border-t border-slate-200 p-4">
+          <div className="flex-shrink-0 flex border-t border-slate-200 p-4 flex-col space-y-2">
             <div className="flex-shrink-0 w-full group block">
               <div className="flex items-center">
                 <div onClick={() => handleNavClick('profile')} className="cursor-pointer">
@@ -186,6 +185,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
                 </div>
               </div>
             </div>
+            <div className="text-[10px] text-slate-300 font-bold uppercase tracking-widest text-center pt-2">v1.0.10</div>
           </div>
         </div>
       </aside>
