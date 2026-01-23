@@ -185,7 +185,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
                 </div>
               </div>
             </div>
-            <div className="text-[10px] text-slate-300 font-bold uppercase tracking-widest text-center pt-2">v1.0.9</div>
+            <div className="text-[10px] text-slate-300 font-bold uppercase tracking-widest text-center pt-2">v1.0.10</div>
           </div>
         </div>
       </aside>
