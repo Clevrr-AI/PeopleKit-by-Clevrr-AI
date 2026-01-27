@@ -10,29 +10,35 @@ const SalaryProcessing: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [calculations, setCalculations] = useState<any[]>([]);
   const [summary, setSummary] = useState({ totalNet: 0, totalDeductions: 0, totalReimbursements: 0 });
+  
+  // Editing state
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editValues, setEditValues] = useState<any>(null);
 
   const months = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ];
 
+  const updateSummary = (calcs: any[]) => {
+    const totalNet = calcs.reduce((acc, curr) => acc + curr.netSalary, 0);
+    const totalDed = calcs.reduce((acc, curr) => acc + curr.totalDeductions, 0);
+    const totalReim = calcs.reduce((acc, curr) => acc + curr.reimbursements, 0);
+    setSummary({ totalNet, totalDeductions: totalDed, totalReimbursements: totalReim });
+  };
+
   const calculateSalaries = async () => {
     setLoading(true);
+    setEditingIndex(null);
     try {
-      // 1. Fetch all users
       const usersSnap = await getDocs(collection(db, 'users'));
       const allUsers = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
 
       const calcs = [];
-      let totalNet = 0;
-      let totalDed = 0;
-      let totalReim = 0;
-
       const startOfMonth = new Date(selectedYear, selectedMonth, 1);
       const endOfMonth = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999);
 
       for (const user of allUsers) {
-        // 2. Fetch Salary Config
         const configSnap = await getDoc(doc(db, 'salaryConfig', user.uid));
         if (!configSnap.exists()) continue;
 
@@ -41,7 +47,6 @@ const SalaryProcessing: React.FC = () => {
         const tax = config.taxDeduction;
         const payPerDay = baseSalary / 30;
 
-        // 3. Fetch Approved Leaves for the selected period
         const leaveQ = query(
           collection(db, 'leaveRequests'),
           where('userId', '==', user.uid),
@@ -63,7 +68,6 @@ const SalaryProcessing: React.FC = () => {
         const unpaidLeaveDays = extraCL + extraSL;
         const leaveDeductionAmount = unpaidLeaveDays * payPerDay;
 
-        // 4. Fetch Late Check-ins for the selected month
         const attendanceQ = query(
           collection(db, 'attendance'),
           where('userId', '==', user.uid),
@@ -76,11 +80,9 @@ const SalaryProcessing: React.FC = () => {
             return aDate >= startOfMonth && aDate <= endOfMonth;
           });
         
-        // Sum the lateType (0.5 or 1)
         const lateDays = lateAttendances.reduce((acc, curr) => acc + (curr.lateType || 0), 0);
         const lateDeductionAmount = lateDays * payPerDay;
 
-        // 5. Fetch Approved Reimbursements for the selected month
         const reimQ = query(
           collection(db, 'reimbursements'),
           where('userId', '==', user.uid),
@@ -96,7 +98,6 @@ const SalaryProcessing: React.FC = () => {
         const totalReimbursementsForUser = reimbursements.reduce((acc, curr) => acc + curr.amount, 0);
 
         const totalDeductions = tax + leaveDeductionAmount + lateDeductionAmount;
-        // Final Salary = Base - Tax - Leaves - Late + Reimbursements
         const netSalary = baseSalary - totalDeductions + totalReimbursementsForUser;
 
         calcs.push({
@@ -114,14 +115,10 @@ const SalaryProcessing: React.FC = () => {
           netSalary,
           totalDeductions
         });
-
-        totalNet += netSalary;
-        totalDed += totalDeductions;
-        totalReim += totalReimbursementsForUser;
       }
 
       setCalculations(calcs);
-      setSummary({ totalNet, totalDeductions: totalDed, totalReimbursements: totalReim });
+      updateSummary(calcs);
     } catch (err) {
       console.error("Calculation error:", err);
       alert("Error calculating salaries. Check console.");
@@ -160,12 +157,71 @@ const SalaryProcessing: React.FC = () => {
       }
       alert(`Processed ${calculations.length} payslips successfully!`);
       setCalculations([]);
+      setEditingIndex(null);
     } catch (err) {
       console.error("Processing error:", err);
       alert("Failed to process some payslips.");
     } finally {
       setProcessing(false);
     }
+  };
+
+  const startEditing = (index: number) => {
+    setEditingIndex(index);
+    setEditValues({ ...calculations[index] });
+  };
+
+  const cancelEditing = () => {
+    setEditingIndex(null);
+    setEditValues(null);
+  };
+
+  const saveEdit = () => {
+    if (editingIndex === null || !editValues) return;
+    
+    const newCalcs = [...calculations];
+    // Recalculate net salary based on potentially changed fields
+    const updatedBase = parseFloat(editValues.baseSalary) || 0;
+    const updatedTax = parseFloat(editValues.tax) || 0;
+    const updatedLeaveDed = parseFloat(editValues.leaveDeductions) || 0;
+    const updatedLateDed = parseFloat(editValues.lateDeductions) || 0;
+    const updatedReimb = parseFloat(editValues.reimbursements) || 0;
+    
+    const totalDeductions = updatedTax + updatedLeaveDed + updatedLateDed;
+    const netSalary = updatedBase - totalDeductions + updatedReimb;
+
+    newCalcs[editingIndex] = {
+      ...editValues,
+      baseSalary: updatedBase,
+      tax: updatedTax,
+      leaveDeductions: updatedLeaveDed,
+      lateDeductions: updatedLateDed,
+      reimbursements: updatedReimb,
+      totalDeductions,
+      netSalary
+    };
+
+    setCalculations(newCalcs);
+    updateSummary(newCalcs);
+    setEditingIndex(null);
+    setEditValues(null);
+  };
+
+  const handleEditChange = (field: string, value: string) => {
+    const numericValue = value === '' ? '' : parseFloat(value);
+    const updatedValues = { ...editValues, [field]: numericValue };
+    
+    // Auto-update net salary preview in edit state
+    const base = parseFloat(field === 'baseSalary' ? value : updatedValues.baseSalary) || 0;
+    const tax = parseFloat(field === 'tax' ? value : updatedValues.tax) || 0;
+    const lDed = parseFloat(field === 'leaveDeductions' ? value : updatedValues.leaveDeductions) || 0;
+    const ltDed = parseFloat(field === 'lateDeductions' ? value : updatedValues.lateDeductions) || 0;
+    const reim = parseFloat(field === 'reimbursements' ? value : updatedValues.reimbursements) || 0;
+    
+    const totalDeductions = tax + lDed + ltDed;
+    const netSalary = base - totalDeductions + reim;
+    
+    setEditValues({ ...updatedValues, totalDeductions, netSalary });
   };
 
   return (
@@ -222,7 +278,7 @@ const SalaryProcessing: React.FC = () => {
               </div>
               <button 
                 onClick={handleProcess}
-                disabled={processing}
+                disabled={processing || editingIndex !== null}
                 className="bg-white text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-50 shadow-sm transition-all disabled:opacity-50"
               >
                 {processing ? '...' : 'Process'}
@@ -240,41 +296,142 @@ const SalaryProcessing: React.FC = () => {
                   <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Deductions</th>
                   <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Reimb.</th>
                   <th className="px-6 py-3 text-right text-[10px] font-bold text-slate-500 uppercase">Net Salary</th>
+                  <th className="px-6 py-3 text-center text-[10px] font-bold text-slate-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {calculations.map((c, i) => (
-                  <tr key={i} className="hover:bg-slate-50/50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <img className="h-8 w-8 rounded-full mr-3" src={`https://picsum.photos/seed/${c.user.uid}/100`} alt="" />
-                        <div>
-                          <div className="text-sm font-bold text-slate-900">{c.user.name}</div>
-                          <div className="text-[10px] text-slate-400 font-medium">{c.user.title}</div>
+                {calculations.map((c, i) => {
+                  const isEditing = editingIndex === i;
+                  const rowData = isEditing ? editValues : c;
+
+                  return (
+                    <tr key={i} className={`hover:bg-slate-50/50 transition-colors ${isEditing ? 'bg-indigo-50/30' : ''}`}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <img className="h-8 w-8 rounded-full mr-3" src={`https://picsum.photos/seed/${c.user.uid}/100`} alt="" />
+                          <div>
+                            <div className="text-sm font-bold text-slate-900">{c.user.name}</div>
+                            <div className="text-[10px] text-slate-400 font-medium">{c.user.title}</div>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">₹{c.baseSalary.toLocaleString('en-IN')}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-rose-500">-₹{c.tax.toLocaleString('en-IN')}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="space-y-1">
-                        {c.leaveDeductions > 0 && (
-                          <div className="text-sm text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} <span className="text-[10px] text-slate-400 font-bold ml-1">({c.unpaidLeaveDays} Unpaid Leaves)</span></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                        {isEditing ? (
+                          <input 
+                            type="number" 
+                            className="w-24 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500"
+                            value={rowData.baseSalary}
+                            onChange={(e) => handleEditChange('baseSalary', e.target.value)}
+                          />
+                        ) : (
+                          `₹${c.baseSalary.toLocaleString('en-IN')}`
                         )}
-                        {c.lateDeductions > 0 && (
-                          <div className="text-sm text-amber-600">-₹{c.lateDeductions.toLocaleString('en-IN')} <span className="text-[10px] text-slate-400 font-bold ml-1">({c.lateDays} Late Days)</span></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-rose-500">
+                        {isEditing ? (
+                          <div className="flex items-center">
+                            <span className="mr-1">-</span>
+                            <input 
+                              type="number" 
+                              className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500 text-rose-500"
+                              value={rowData.tax}
+                              onChange={(e) => handleEditChange('tax', e.target.value)}
+                            />
+                          </div>
+                        ) : (
+                          `-₹${c.tax.toLocaleString('en-IN')}`
                         )}
-                        {c.leaveDeductions === 0 && c.lateDeductions === 0 && (
-                          <span className="text-xs text-slate-400 italic">No deductions</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {isEditing ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center text-xs text-rose-500">
+                              <span className="w-12 text-[10px] text-slate-400">Leave:</span>
+                              <input 
+                                type="number" 
+                                className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500"
+                                value={rowData.leaveDeductions}
+                                onChange={(e) => handleEditChange('leaveDeductions', e.target.value)}
+                              />
+                            </div>
+                            <div className="flex items-center text-xs text-amber-600">
+                              <span className="w-12 text-[10px] text-slate-400">Late:</span>
+                              <input 
+                                type="number" 
+                                className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500"
+                                value={rowData.lateDeductions}
+                                onChange={(e) => handleEditChange('lateDeductions', e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            {c.leaveDeductions > 0 && (
+                              <div className="text-sm text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} <span className="text-[10px] text-slate-400 font-bold ml-1">({c.unpaidLeaveDays} Unpaid Leaves)</span></div>
+                            )}
+                            {c.lateDeductions > 0 && (
+                              <div className="text-sm text-amber-600">-₹{c.lateDeductions.toLocaleString('en-IN')} <span className="text-[10px] text-slate-400 font-bold ml-1">({c.lateDays} Late Days)</span></div>
+                            )}
+                            {c.leaveDeductions === 0 && c.lateDeductions === 0 && (
+                              <span className="text-xs text-slate-400 italic">No deductions</span>
+                            )}
+                          </div>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-bold">+₹{c.reimbursements.toLocaleString('en-IN')}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <span className="text-sm font-black text-slate-900">₹{c.netSalary.toLocaleString('en-IN')}</span>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-bold">
+                        {isEditing ? (
+                          <div className="flex items-center">
+                            <span className="mr-1">+</span>
+                            <input 
+                              type="number" 
+                              className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500 text-emerald-600"
+                              value={rowData.reimbursements}
+                              onChange={(e) => handleEditChange('reimbursements', e.target.value)}
+                            />
+                          </div>
+                        ) : (
+                          `+₹${c.reimbursements.toLocaleString('en-IN')}`
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <span className={`text-sm font-black ${isEditing ? 'text-indigo-600' : 'text-slate-900'}`}>
+                          ₹{rowData.netSalary.toLocaleString('en-IN')}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        {isEditing ? (
+                          <div className="flex items-center justify-center space-x-2">
+                            <button 
+                              onClick={saveEdit}
+                              className="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg hover:bg-emerald-200 transition-colors"
+                              title="Save Changes"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                            </button>
+                            <button 
+                              onClick={cancelEditing}
+                              className="p-1.5 bg-rose-100 text-rose-600 rounded-lg hover:bg-rose-200 transition-colors"
+                              title="Cancel"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          </div>
+                        ) : (
+                          <button 
+                            onClick={() => startEditing(i)}
+                            disabled={editingIndex !== null}
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all disabled:opacity-30"
+                            title="Edit this record"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
