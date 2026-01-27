@@ -1,4 +1,4 @@
-const CACHE_NAME = 'clevrr-hr-v1.0.11';
+const CACHE_NAME = 'clevrr-hr-v1.0.13';
 const ASSETS = [
   '/',
   '/index.html',
