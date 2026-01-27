@@ -8,9 +8,10 @@ interface LayoutProps {
   onLogout: () => void;
   activeView: ViewType;
   setView: (view: ViewType) => void;
+  onHardRefresh: () => void;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, setView }) => {
+const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, setView, onHardRefresh }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const isFounder = user.role === 'Founder';
 
@@ -147,7 +148,18 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
                   </div>
                 </div>
               </div>
-              <div className="text-[10px] text-slate-300 font-bold uppercase tracking-widest text-center pt-2">v1.0.2</div>
+              <div className="flex items-center justify-center space-x-2 pt-2">
+                <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.11</span>
+                <button 
+                  onClick={onHardRefresh}
+                  className="p-1 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                  title="Force Update App"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
           <div className="flex-shrink-0 w-14"></div>
@@ -185,7 +197,18 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
                 </div>
               </div>
             </div>
-            <div className="text-[10px] text-slate-300 font-bold uppercase tracking-widest text-center pt-2">v1.0.10</div>
+            <div className="flex items-center justify-center space-x-2 pt-2">
+              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.11</span>
+              <button 
+                onClick={onHardRefresh}
+                className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                title="Force Update App"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </aside>

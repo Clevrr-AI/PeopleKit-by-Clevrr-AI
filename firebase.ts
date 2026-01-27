@@ -1,6 +1,7 @@
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+// Fix: Added createUserWithEmailAndPassword to imports and ensured getAuth is available for export
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from 'firebase/auth';
 // Consolidated multiline firestore imports into a single line to fix "no exported member" errors in the current environment
 import { getFirestore, doc, getDoc, collection, addDoc, serverTimestamp, Timestamp, runTransaction, updateDoc, increment, query, where, orderBy, limit, onSnapshot, getDocs, setDoc, GeoPoint, deleteDoc, enableIndexedDbPersistence } from 'firebase/firestore';
 
@@ -31,8 +32,8 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Export Auth utilities
-export { onAuthStateChanged, signInWithEmailAndPassword, signOut };
+// Fix: Exporting auth utilities including getAuth and createUserWithEmailAndPassword for centralized access
+export { onAuthStateChanged, signInWithEmailAndPassword, signOut, getAuth, createUserWithEmailAndPassword };
 
 // Export Firestore utilities
 export { 
