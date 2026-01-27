@@ -11,6 +11,7 @@ import Reimbursements from './components/Reimbursements';
 import Team from './components/Team';
 import CheckIn from './components/CheckIn';
 import Layout from './components/Layout';
+import AttendanceManager from './components/AttendanceManager';
 import { auth, db, doc, getDoc, onAuthStateChanged, signInWithEmailAndPassword, signOut, onSnapshot } from './firebase';
 
 const CURRENT_APP_VERSION = '1.0.11';
@@ -101,7 +102,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#/', '');
-      const validViews: ViewType[] = ['dashboard', 'apply-leave', 'profile', 'salaries', 'payslips', 'reimbursements', 'team', 'check-in'];
+      const validViews: ViewType[] = ['dashboard', 'apply-leave', 'profile', 'salaries', 'payslips', 'reimbursements', 'team', 'check-in', 'attendance'];
       if (validViews.includes(hash as ViewType)) {
         setView(hash as ViewType);
       } else if (!hash) {
@@ -358,6 +359,9 @@ const App: React.FC = () => {
         )}
         {view === 'check-in' && (
           <CheckIn user={user!} />
+        )}
+        {view === 'attendance' && (
+          <AttendanceManager user={user!} />
         )}
       </Layout>
     </div>

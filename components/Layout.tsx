@@ -46,6 +46,18 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
         Dashboard
       </button>
 
+      {isFounder && (
+        <button 
+          onClick={() => handleNavClick('attendance')}
+          className={`${activeView === 'attendance' ? 'bg-slate-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'} group w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors`}
+        >
+          <svg className={`${activeView === 'attendance' ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-500'} mr-3 h-5 w-5`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          Attendance
+        </button>
+      )}
+
       <button 
         onClick={() => handleNavClick('team')}
         className={`${activeView === 'team' ? 'bg-slate-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'} group w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors`}

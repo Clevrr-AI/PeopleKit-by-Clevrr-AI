@@ -120,7 +120,7 @@ export interface LeaveRequest {
   cancelledBy: string | null;
 }
 
-export type ViewType = 'dashboard' | 'apply-leave' | 'profile' | 'salaries' | 'payslips' | 'reimbursements' | 'team' | 'check-in';
+export type ViewType = 'dashboard' | 'apply-leave' | 'profile' | 'salaries' | 'payslips' | 'reimbursements' | 'team' | 'check-in' | 'attendance';
 
 export interface AppState {
   user: UserProfile | null;
