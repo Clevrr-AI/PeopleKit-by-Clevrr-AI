@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserProfile, UserMetadata, LeaveRequest } from '../types';
-import { db, collection, query, where, getDocs, doc, getDoc, Timestamp, setDoc, serverTimestamp, deleteDoc } from '../firebase';
+// Fix: Centralized firebase imports to use local firebase.ts configuration for consistent member visibility
+import { db, collection, query, where, getDocs, doc, getDoc, Timestamp, setDoc, serverTimestamp, deleteDoc, orderBy, limit, getAuth, createUserWithEmailAndPassword } from '../firebase';
 import { initializeApp, getApps, deleteApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import AttendanceTrendChart from './AttendanceTrendChart';
 
 interface TeamProps {
   user: UserProfile;
@@ -23,7 +24,9 @@ const Team: React.FC<TeamProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMember, setSelectedMember] = useState<{ profile: UserProfile; metadata: UserMetadata | null } | null>(null);
+  const [selectedMemberAttendance, setSelectedMemberAttendance] = useState<any[]>([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [exporting, setExporting] = useState(false);
   
   // New Employee Modal State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -160,7 +163,6 @@ const Team: React.FC<TeamProps> = ({ user }) => {
 
     setIsDeleting(targetUser.uid);
     try {
-      // Collections to delete from as per request
       const collections = ['users', 'retentionBonus', 'salaryConfig', 'leaveBalances', 'userMetadata'];
       const deletions = collections.map(col => deleteDoc(doc(db, col, targetUser.uid)));
       
@@ -198,6 +200,7 @@ const Team: React.FC<TeamProps> = ({ user }) => {
       if (existingSecondary) await deleteApp(existingSecondary);
       
       secondaryApp = initializeApp(config, 'secondary');
+      // Fix: Now correctly importing getAuth from centralized local firebase.ts
       const secondaryAuth = getAuth(secondaryApp);
       
       const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newEmpData.email, newEmpData.password);
@@ -281,15 +284,90 @@ const Team: React.FC<TeamProps> = ({ user }) => {
 
   const handleViewProfile = async (member: UserProfile) => {
     setLoadingDetails(true);
+    setSelectedMemberAttendance([]);
     try {
       const metaSnap = await getDoc(doc(db, 'userMetadata', member.uid));
       const metadata = metaSnap.exists() ? (metaSnap.data() as UserMetadata) : null;
       setSelectedMember({ profile: member, metadata });
+
+      // If founder, fetch attendance trend for this member
+      if (isFounder) {
+        const q = query(
+          collection(db, 'attendance'),
+          where('userId', '==', member.uid),
+          orderBy('checkinAt', 'desc'),
+          limit(14)
+        );
+        const attendanceSnapshot = await getDocs(q);
+        const data = attendanceSnapshot.docs.map(doc => {
+          const attendance = doc.data();
+          const checkinDate = attendance.checkinAt.toDate();
+          const hours = checkinDate.getHours();
+          const minutes = checkinDate.getMinutes();
+          
+          return {
+            date: checkinDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+            timeValue: hours + (minutes / 60),
+            timestamp: checkinDate.getTime(),
+            label: checkinDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          };
+        });
+        setSelectedMemberAttendance(data.sort((a, b) => a.timestamp - b.timestamp));
+      }
     } catch (err) {
-      console.error("Error fetching member metadata:", err);
+      console.error("Error fetching member details:", err);
       setSelectedMember({ profile: member, metadata: null });
     } finally {
       setLoadingDetails(false);
+    }
+  };
+
+  const downloadAttendanceCSV = async () => {
+    setExporting(true);
+    try {
+      const q = query(collection(db, 'attendance'), orderBy('checkinAt', 'desc'), limit(1000));
+      const snapshot = await getDocs(q);
+      
+      if (snapshot.empty) {
+        alert("No attendance records found to export.");
+        return;
+      }
+
+      const headers = ['Employee Name', 'User ID', 'Date', 'Time', 'Is WFH', 'Is OOO', 'Is Late', 'Late Type', 'Status'];
+      const rows = snapshot.docs.map(doc => {
+        const data = doc.data();
+        const date = data.checkinAt.toDate();
+        return [
+          data.userName || 'Unknown',
+          data.userId,
+          date.toLocaleDateString('en-GB'),
+          date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          data.isWfh ? 'Yes' : 'No',
+          data.isOutOfOffice ? 'Yes' : 'No',
+          data.isLate ? 'Yes' : 'No',
+          data.lateType ? (data.lateType === 1 ? 'Full' : 'Half') : '-',
+          data.status || 'Verified'
+        ];
+      });
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `clevrr_attendance_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error("Export error:", err);
+      alert("Failed to export attendance CSV.");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -319,15 +397,31 @@ const Team: React.FC<TeamProps> = ({ user }) => {
         </div>
         <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
           {isFounder && (
-            <button 
-              onClick={() => setShowAddModal(true)}
-              className="bg-indigo-600 text-white px-6 py-2.5 rounded-2xl font-black text-sm hover:bg-indigo-700 shadow-xl shadow-indigo-100 flex items-center justify-center space-x-2 transition-all active:scale-95"
-            >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-              </svg>
-              <span>Add Employee</span>
-            </button>
+            <>
+              <button 
+                onClick={downloadAttendanceCSV}
+                disabled={exporting}
+                className="bg-white text-slate-900 border border-slate-200 px-6 py-2.5 rounded-2xl font-black text-sm hover:bg-slate-50 shadow-sm flex items-center justify-center space-x-2 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {exporting ? (
+                  <svg className="animate-spin h-4 w-4 text-slate-900" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                ) : (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
+                <span>Export CSV</span>
+              </button>
+              <button 
+                onClick={() => setShowAddModal(true)}
+                className="bg-indigo-600 text-white px-6 py-2.5 rounded-2xl font-black text-sm hover:bg-indigo-700 shadow-xl shadow-indigo-100 flex items-center justify-center space-x-2 transition-all active:scale-95"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                </svg>
+                <span>Add Employee</span>
+              </button>
+            </>
           )}
           <div className="relative w-full md:w-64">
             <input 
@@ -365,7 +459,6 @@ const Team: React.FC<TeamProps> = ({ user }) => {
                 : 'bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-100'
               }`}
             >
-              {/* Founder-only delete button */}
               {isFounder && member.uid !== user.uid && (
                 <button 
                   onClick={() => handleDeleteEmployee(member)}
@@ -430,6 +523,150 @@ const Team: React.FC<TeamProps> = ({ user }) => {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Profile Details Modal */}
+      {selectedMember && (
+        <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedMember(null)}></div>
+          <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-[2.5rem] shadow-2xl animate-in fade-in zoom-in duration-300">
+            <div className="sticky top-0 bg-white/80 backdrop-blur-md px-10 py-8 border-b border-slate-100 flex items-center justify-between z-10">
+              <h2 className="text-xl font-black text-slate-900 tracking-tight">Profile Details</h2>
+              <button 
+                onClick={() => setSelectedMember(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition-colors"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-10 space-y-10">
+              <div className="flex flex-col md:flex-row items-center md:items-start gap-10">
+                <img 
+                  className="h-40 w-40 rounded-[2.5rem] object-cover shadow-2xl border-8 border-slate-50" 
+                  src={`https://picsum.photos/seed/${selectedMember.profile.uid}/200`} 
+                  alt={selectedMember.profile.name} 
+                />
+                <div className="text-center md:text-left pt-4">
+                  <h3 className="text-4xl font-black text-slate-900 tracking-tight">{selectedMember.profile.name}</h3>
+                  <p className="text-indigo-600 font-bold text-xl mt-1">{selectedMember.profile.title}</p>
+                  <div className="flex flex-wrap gap-6 mt-4 justify-center md:justify-start text-slate-500 font-bold text-sm">
+                    <span className="flex items-center">
+                      <svg className="w-5 h-5 mr-2 opacity-40 text-slate-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                      {selectedMember.profile.department}
+                    </span>
+                    <span className="flex items-center">
+                      <svg className="w-5 h-5 mr-2 opacity-40 text-slate-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      Joined {selectedMember.profile.joiningDate}
+                    </span>
+                  </div>
+                  <div className="mt-8 flex flex-wrap gap-3 justify-center md:justify-start">
+                    <span className="px-5 py-2 bg-slate-100 text-slate-600 rounded-full text-[11px] font-black uppercase tracking-widest">{selectedMember.profile.role}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Attendance Trend Section - Founder only */}
+              {isFounder && selectedMemberAttendance.length > 0 && (
+                <div className="bg-slate-50 rounded-[2.5rem] p-8 border border-slate-100">
+                  <AttendanceTrendChart data={selectedMemberAttendance} />
+                </div>
+              )}
+
+              {user.role === 'Founder' || user.uid === selectedMember.profile.uid ? (
+                <>
+                {!selectedMember.metadata ? (
+                  <div className="p-16 text-center bg-slate-50 rounded-[2.5rem] border-4 border-dashed border-slate-200">
+                    <p className="text-slate-400 font-black text-lg">Confidential records (bank/docs) not yet uploaded.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                    <div className="bg-slate-50 rounded-[2.5rem] p-10 space-y-8">
+                      <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center">
+                        <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeWidth={2.5}/></svg>
+                        Confidential Bank Details
+                      </h4>
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-8">
+                          <div>
+                            <p className="text-[10px] text-slate-400 font-black uppercase mb-1.5">Account No.</p>
+                            <p className="text-base font-black text-slate-900 font-mono tracking-wider">{selectedMember.metadata.bankDetails.accountNumber || '---'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 font-black uppercase mb-1.5">IFSC Code</p>
+                            <p className="text-base font-black text-slate-900 font-mono tracking-wider">{selectedMember.metadata.bankDetails.ifscCode || '---'}</p>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-black uppercase mb-1.5">Bank Institution</p>
+                          <p className="text-base font-black text-slate-900">{selectedMember.metadata.bankDetails.bankName || '---'} ({selectedMember.metadata.bankDetails.bankBranch || '---'})</p>
+                        </div>
+                        {selectedMember.metadata.bankDetails.chequeDriveLink && (
+                          <a 
+                            href={selectedMember.metadata.bankDetails.chequeDriveLink} 
+                            target="_blank" rel="noreferrer"
+                            className="inline-flex items-center text-sm font-black text-indigo-600 hover:text-indigo-800 transition-colors"
+                          >
+                            <span>Download Proof</span>
+                            <svg className="w-4 h-4 ml-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 rounded-[2.5rem] p-10 space-y-8">
+                      <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center">
+                        <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" strokeWidth={2.5}/></svg>
+                        Document Vault
+                      </h4>
+                      <div className="grid grid-cols-1 gap-4">
+                        {Object.entries({
+                          ...selectedMember.metadata.educationDocs,
+                          ...selectedMember.metadata.personalDocs
+                        }).map(([key, link]) => (
+                          link ? (
+                            <a 
+                              key={key}
+                              href={link}
+                              target="_blank" rel="noreferrer"
+                              className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-100 hover:border-indigo-200 group transition-all"
+                            >
+                              <span className="text-[11px] font-black text-slate-500 uppercase truncate pr-4">
+                                {key.replace(/([A-Z])/g, ' $1').trim()}
+                              </span>
+                              <svg className="h-5 w-5 text-slate-300 group-hover:text-indigo-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                            </a>
+                          ) : null
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                </>
+              ) : (
+                <div className="p-16 text-center bg-indigo-50 rounded-[2.5rem] border-2 border-dashed border-indigo-100">
+                  <div className="mx-auto w-16 h-16 bg-white rounded-[1.5rem] flex items-center justify-center mb-6 text-indigo-400 shadow-sm">
+                    <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xl font-black text-indigo-900 tracking-tight">Confidential Records Hidden</h3>
+                  <p className="text-indigo-600 text-sm mt-2 max-w-sm mx-auto font-medium leading-relaxed">Bank details and sensitive documents are only visible to the profile owner and system Founders.</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -633,147 +870,6 @@ const Team: React.FC<TeamProps> = ({ user }) => {
                     </>
                   ) : 'Finish & Create Profile'}
                 </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Member Profile Modal (existing detail view) */}
-      {selectedMember && (
-        <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedMember(null)}></div>
-          <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white rounded-[2.5rem] shadow-2xl animate-in fade-in zoom-in duration-300">
-            <div className="sticky top-0 bg-white/80 backdrop-blur-md px-10 py-8 border-b border-slate-100 flex items-center justify-between z-10">
-              <h2 className="text-xl font-black text-slate-900 tracking-tight tracking-tight">Profile Details</h2>
-              <button 
-                onClick={() => setSelectedMember(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition-colors"
-              >
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="p-10 space-y-10">
-              {/* Profile Header */}
-              <div className="flex flex-col md:flex-row items-center md:items-start gap-10">
-                <img 
-                  className="h-40 w-40 rounded-[2.5rem] object-cover shadow-2xl border-8 border-slate-50" 
-                  src={`https://picsum.photos/seed/${selectedMember.profile.uid}/200`} 
-                  alt={selectedMember.profile.name} 
-                />
-                <div className="text-center md:text-left pt-4">
-                  <h3 className="text-4xl font-black text-slate-900 tracking-tight">{selectedMember.profile.name}</h3>
-                  <p className="text-indigo-600 font-bold text-xl mt-1">{selectedMember.profile.title}</p>
-                  <div className="flex flex-wrap gap-6 mt-4 justify-center md:justify-start text-slate-500 font-bold text-sm">
-                    <span className="flex items-center">
-                      <svg className="w-5 h-5 mr-2 opacity-40 text-slate-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                      </svg>
-                      {selectedMember.profile.department}
-                    </span>
-                    <span className="flex items-center">
-                      <svg className="w-5 h-5 mr-2 opacity-40 text-slate-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      Joined {selectedMember.profile.joiningDate}
-                    </span>
-                  </div>
-                  <div className="mt-8 flex flex-wrap gap-3 justify-center md:justify-start">
-                    <span className="px-5 py-2 bg-slate-100 text-slate-600 rounded-full text-[11px] font-black uppercase tracking-widest">{selectedMember.profile.role}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Read Only Metadata Sections (Restricted) */}
-              {user.role === 'Founder' || user.uid === selectedMember.profile.uid ? (
-                <>
-                {!selectedMember.metadata ? (
-                  <div className="p-16 text-center bg-slate-50 rounded-[2.5rem] border-4 border-dashed border-slate-200">
-                    <p className="text-slate-400 font-black text-lg">Confidential records (bank/docs) not yet uploaded.</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    {/* Bank Details */}
-                    <div className="bg-slate-50 rounded-[2.5rem] p-10 space-y-8">
-                      <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center">
-                        <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeWidth={2.5}/></svg>
-                        Confidential Bank Details
-                      </h4>
-                      <div className="space-y-6">
-                        <div className="grid grid-cols-2 gap-8">
-                          <div>
-                            <p className="text-[10px] text-slate-400 font-black uppercase mb-1.5">Account No.</p>
-                            <p className="text-base font-black text-slate-900 font-mono tracking-wider">{selectedMember.metadata.bankDetails.accountNumber || '---'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-slate-400 font-black uppercase mb-1.5">IFSC Code</p>
-                            <p className="text-base font-black text-slate-900 font-mono tracking-wider">{selectedMember.metadata.bankDetails.ifscCode || '---'}</p>
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 font-black uppercase mb-1.5">Bank Institution</p>
-                          <p className="text-base font-black text-slate-900">{selectedMember.metadata.bankDetails.bankName || '---'} ({selectedMember.metadata.bankDetails.bankBranch || '---'})</p>
-                        </div>
-                        {selectedMember.metadata.bankDetails.chequeDriveLink && (
-                          <a 
-                            href={selectedMember.metadata.bankDetails.chequeDriveLink} 
-                            target="_blank" rel="noreferrer"
-                            className="inline-flex items-center text-sm font-black text-indigo-600 hover:text-indigo-800 transition-colors"
-                          >
-                            <span>Download Proof</span>
-                            <svg className="w-4 h-4 ml-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                            </svg>
-                          </a>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Documents */}
-                    <div className="bg-slate-50 rounded-[2.5rem] p-10 space-y-8">
-                      <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center">
-                        <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" strokeWidth={2.5}/></svg>
-                        Document Vault
-                      </h4>
-                      <div className="grid grid-cols-1 gap-4">
-                        {Object.entries({
-                          ...selectedMember.metadata.educationDocs,
-                          ...selectedMember.metadata.personalDocs
-                        }).map(([key, link]) => (
-                          link ? (
-                            <a 
-                              key={key}
-                              href={link}
-                              target="_blank" rel="noreferrer"
-                              className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-100 hover:border-indigo-200 group transition-all"
-                            >
-                              <span className="text-[11px] font-black text-slate-500 uppercase truncate pr-4">
-                                {key.replace(/([A-Z])/g, ' $1').trim()}
-                              </span>
-                              <svg className="h-5 w-5 text-slate-300 group-hover:text-indigo-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                              </svg>
-                            </a>
-                          ) : null
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                </>
-              ) : (
-                <div className="p-16 text-center bg-indigo-50 rounded-[2.5rem] border-2 border-dashed border-indigo-100">
-                  <div className="mx-auto w-16 h-16 bg-white rounded-[1.5rem] flex items-center justify-center mb-6 text-indigo-400 shadow-sm">
-                    <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-xl font-black text-indigo-900 tracking-tight">Confidential Records Hidden</h3>
-                  <p className="text-indigo-600 text-sm mt-2 max-w-sm mx-auto font-medium leading-relaxed">Bank details and sensitive documents are only visible to the profile owner and system Founders.</p>
-                </div>
               )}
             </div>
           </div>
