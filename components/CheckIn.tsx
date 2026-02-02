@@ -145,7 +145,7 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
       const hours = now.getHours();
       const minutes = now.getMinutes();
       const currentTimeInMinutes = hours * 60 + minutes;
-      const LATE_START_MINUTES = 10 * 60 + 10;
+      const LATE_START_MINUTES = 10 * 60 + 15;
       const FULL_DAY_LATE_MINUTES = 12 * 60 + 30;
       const isActuallyLate = currentTimeInMinutes > LATE_START_MINUTES;
       
@@ -349,6 +349,10 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
                <div className="flex items-center">
                  <div className="w-2 h-2 bg-slate-300 rounded-full mr-2"></div>
                  Reporting time: 10:00 AM
+               </div>
+               <div className="flex items-center">
+                 <div className="w-2 h-2 bg-slate-300 rounded-full mr-2"></div>
+                 Cut-off Late time: 10:15 AM
                </div>
                <div className="flex items-center">
                  <div className="w-2 h-2 bg-slate-300 rounded-full mr-2"></div>

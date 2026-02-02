@@ -43,7 +43,7 @@ const AttendanceTrendChart: React.FC<AttendanceTrendChartProps> = ({ data }) => 
           </div>
           <div className="flex items-center">
             <span className="w-2 h-2 rounded-full bg-rose-400 mr-1.5"></span>
-            <span className="text-slate-500">Cutoff (10:30)</span>
+            <span className="text-slate-500">Cutoff (10:15)</span>
           </div>
         </div>
       </div>
@@ -78,7 +78,7 @@ const AttendanceTrendChart: React.FC<AttendanceTrendChartProps> = ({ data }) => 
               formatter={(value: number) => [formatTime(value), 'Check-in']}
               labelStyle={{ color: '#64748b', marginBottom: '4px' }}
             />
-            <ReferenceLine y={10.5} stroke="#fb7185" strokeDasharray="4 4" strokeWidth={1.5} />
+            <ReferenceLine y={10.25} stroke="#fb7185" strokeDasharray="4 4" strokeWidth={1.5} />
             <Line 
               type="monotone" 
               dataKey="timeValue" 

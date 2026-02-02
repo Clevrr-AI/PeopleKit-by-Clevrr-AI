@@ -56,7 +56,7 @@ const LateWarningWidget: React.FC<LateWarningWidgetProps> = ({ warningsLeft }) =
       
       {!isExhausted && (
         <p className="mt-3 text-[10px] text-slate-400 font-medium">
-          You get 3 free passes per month for arriving after 10:30 AM.
+          You get 3 free passes per month for arriving after 10:15 AM.
         </p>
       )}
     </div>
