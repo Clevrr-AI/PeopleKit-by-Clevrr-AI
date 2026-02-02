@@ -3,7 +3,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 // Fix: Added createUserWithEmailAndPassword to imports and ensured getAuth is available for export
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from 'firebase/auth';
 // Consolidated multiline firestore imports into a single line to fix "no exported member" errors in the current environment
-import { getFirestore, doc, getDoc, collection, addDoc, serverTimestamp, Timestamp, runTransaction, updateDoc, increment, query, where, orderBy, limit, onSnapshot, getDocs, setDoc, GeoPoint, deleteDoc, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, collection, addDoc, serverTimestamp, Timestamp, runTransaction, updateDoc, increment, query, where, orderBy, limit, onSnapshot, getDocs, setDoc, GeoPoint, deleteDoc, enableIndexedDbPersistence, arrayUnion } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDnqcY_PAsPmfLBt4eG7o62t7a5YV877dA",
@@ -54,5 +54,6 @@ export {
   getDocs,
   setDoc,
   GeoPoint,
-  deleteDoc
+  deleteDoc,
+  arrayUnion
 };

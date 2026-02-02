@@ -14,7 +14,7 @@ import Layout from './components/Layout';
 import AttendanceManager from './components/AttendanceManager';
 import { auth, db, doc, getDoc, onAuthStateChanged, signInWithEmailAndPassword, signOut, onSnapshot } from './firebase';
 
-const CURRENT_APP_VERSION = '1.0.14';
+const CURRENT_APP_VERSION = '1.0.15';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
