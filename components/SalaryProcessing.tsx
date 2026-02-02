@@ -1,14 +1,16 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { UserProfile, SalaryConfig, LeaveRequest, Payslip, Reimbursement } from '../types';
-import { db, collection, getDocs, query, where, addDoc, serverTimestamp, doc, getDoc, updateDoc, increment, arrayUnion } from '../firebase';
+import { db, collection, getDocs, query, where, addDoc, serverTimestamp, doc, getDoc, updateDoc, increment, arrayUnion, orderBy } from '../firebase';
 
 const SalaryProcessing: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [calculations, setCalculations] = useState<any[]>([]);
+  const [history, setHistory] = useState<Payslip[]>([]);
   const [summary, setSummary] = useState({ totalNet: 0, totalDeductions: 0, totalReimbursements: 0 });
   
   // Editing state
@@ -19,6 +21,29 @@ const SalaryProcessing: React.FC = () => {
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ];
+
+  const fetchHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const q = query(
+        collection(db, 'payslips'),
+        where('month', '==', selectedMonth),
+        where('year', '==', selectedYear),
+        orderBy('employeeName', 'asc')
+      );
+      const snap = await getDocs(q);
+      const records = snap.docs.map(d => ({ id: d.id, ...d.data() } as Payslip));
+      setHistory(records);
+    } catch (err) {
+      console.error("Error fetching payroll history:", err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [selectedMonth, selectedYear]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
   const updateSummary = (calcs: any[]) => {
     const totalNet = calcs.reduce((acc, curr) => acc + curr.netSalary, 0);
@@ -39,6 +64,9 @@ const SalaryProcessing: React.FC = () => {
       const endOfMonth = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999);
 
       for (const user of allUsers) {
+        // Skip users who already have a payslip for this month
+        if (history.some(p => p.userId === user.uid)) continue;
+
         const configSnap = await getDoc(doc(db, 'salaryConfig', user.uid));
         if (!configSnap.exists()) continue;
 
@@ -106,7 +134,6 @@ const SalaryProcessing: React.FC = () => {
         const totalReimbursementsForUser = reimbursements.reduce((acc, curr) => acc + curr.amount, 0);
 
         // Retention Bonus Calculation
-        // Leaves: Approved CL + Approved SL + Pending CL + Pending SL + Late checkins + Half days (Approved + Pending)
         const totalLeavesForBonus = approvedCL + approvedSL + pendingCL + pendingSL + lateDays + (approvedHDLCount * 0.5) + (pendingHDLCount * 0.5);
         const eligibleForBonus = totalLeavesForBonus < 2;
         const bonusAmount = eligibleForBonus ? payPerDay * 2 : 0;
@@ -128,13 +155,15 @@ const SalaryProcessing: React.FC = () => {
           unpaidLeaveDays,
           netSalary,
           totalDeductions,
-          // Bonus fields
           totalLeavesForBonus,
           bonusAmount,
           eligibleForBonus
         });
       }
 
+      if (calcs.length === 0) {
+        alert("No additional employees to process for this month.");
+      }
       setCalculations(calcs);
       updateSummary(calcs);
     } catch (err) {
@@ -200,7 +229,6 @@ const SalaryProcessing: React.FC = () => {
             bonusMonths: arrayUnion(bonusEntry)
           });
         } else {
-          // If for some reason the doc doesn't exist, create it
           await addDoc(collection(db, 'retentionBonus'), {
             userId: userId,
             employeeName: calc.user.name,
@@ -210,9 +238,9 @@ const SalaryProcessing: React.FC = () => {
           });
         }
       }
-      alert(`Processed ${calculations.length} payroll records successfully! Leave balances reset and retention bonuses updated.`);
+      alert(`Processed ${calculations.length} payroll records successfully!`);
       setCalculations([]);
-      setEditingIndex(null);
+      fetchHistory();
     } catch (err) {
       console.error("Processing error:", err);
       alert("Failed to process some records.");
@@ -235,7 +263,6 @@ const SalaryProcessing: React.FC = () => {
     if (editingIndex === null || !editValues) return;
     
     const newCalcs = [...calculations];
-    // Recalculate net salary based on potentially changed fields
     const updatedBase = parseFloat(editValues.baseSalary) || 0;
     const updatedTax = parseFloat(editValues.tax) || 0;
     const updatedLeaveDed = parseFloat(editValues.leaveDeductions) || 0;
@@ -266,7 +293,6 @@ const SalaryProcessing: React.FC = () => {
     const numericValue = value === '' ? '' : parseFloat(value);
     const updatedValues = { ...editValues, [field]: numericValue };
     
-    // Auto-update net salary preview in edit state
     const base = parseFloat(field === 'baseSalary' ? value : updatedValues.baseSalary) || 0;
     const tax = parseFloat(field === 'tax' ? value : updatedValues.tax) || 0;
     const lDed = parseFloat(field === 'leaveDeductions' ? value : updatedValues.leaveDeductions) || 0;
@@ -279,8 +305,10 @@ const SalaryProcessing: React.FC = () => {
     setEditValues({ ...updatedValues, totalDeductions, netSalary });
   };
 
+  const totalHistoryPayout = history.reduce((acc, curr) => acc + curr.netSalary, 0);
+
   return (
-    <div className="space-y-8 max-w-7xl mx-auto pb-12">
+    <div className="space-y-12 max-w-7xl mx-auto pb-12">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Salary Management</h1>
@@ -311,32 +339,29 @@ const SalaryProcessing: React.FC = () => {
         </div>
       </header>
 
+      {/* 1. New Calculations Section */}
       {calculations.length > 0 && (
-        <>
+        <section className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest">New Payroll Preview</h2>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-bold text-slate-500">Total New Payout:</span>
+              <span className="text-lg font-black text-slate-900">₹{summary.totalNet.toLocaleString('en-IN')}</span>
+            </div>
+          </div>
+          
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-bold text-slate-400 uppercase mb-1">Total Payout</p>
-              <p className="text-3xl font-black text-slate-900">₹{summary.totalNet.toLocaleString('en-IN')}</p>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-bold text-slate-400 uppercase mb-1">Reimbursements</p>
-              <p className="text-3xl font-black text-indigo-600">₹{summary.totalReimbursements.toLocaleString('en-IN')}</p>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-bold text-slate-400 uppercase mb-1">Total Deductions</p>
-              <p className="text-3xl font-black text-rose-600">₹{summary.totalDeductions.toLocaleString('en-IN')}</p>
-            </div>
-            <div className="bg-indigo-600 p-6 rounded-2xl shadow-lg flex items-center justify-between">
+            <div className="bg-indigo-600 p-6 rounded-2xl shadow-lg flex items-center justify-between col-span-1 md:col-span-4">
               <div>
                 <p className="text-xs font-bold text-indigo-100 uppercase mb-1">Status</p>
-                <p className="text-xl font-bold text-white">Ready</p>
+                <p className="text-xl font-bold text-white">Pending Finalization ({calculations.length} Records)</p>
               </div>
               <button 
                 onClick={handleProcess}
                 disabled={processing || editingIndex !== null}
-                className="bg-white text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-50 shadow-sm transition-all disabled:opacity-50"
+                className="bg-white text-indigo-600 px-6 py-3 rounded-xl font-black text-sm hover:bg-indigo-50 shadow-sm transition-all disabled:opacity-50"
               >
-                {processing ? 'Processing...' : 'Finalize & Reset'}
+                {processing ? 'Processing...' : 'Finalize & Update Records'}
               </button>
             </div>
           </div>
@@ -358,7 +383,6 @@ const SalaryProcessing: React.FC = () => {
                 {calculations.map((c, i) => {
                   const isEditing = editingIndex === i;
                   const rowData = isEditing ? editValues : c;
-
                   return (
                     <tr key={i} className={`hover:bg-slate-50/50 transition-colors ${isEditing ? 'bg-indigo-50/30' : ''}`}>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -402,55 +426,23 @@ const SalaryProcessing: React.FC = () => {
                           <div className="space-y-2">
                              <div className="flex items-center text-xs text-rose-500">
                               <span className="w-12 text-[10px] text-slate-400">Tax:</span>
-                              <input 
-                                type="number" 
-                                className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500"
-                                value={rowData.tax}
-                                onChange={(e) => handleEditChange('tax', e.target.value)}
-                              />
+                              <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.tax} onChange={(e) => handleEditChange('tax', e.target.value)} />
                             </div>
                             <div className="flex items-center text-xs text-rose-500">
                               <span className="w-12 text-[10px] text-slate-400">Leave:</span>
-                              <input 
-                                type="number" 
-                                className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500"
-                                value={rowData.leaveDeductions}
-                                onChange={(e) => handleEditChange('leaveDeductions', e.target.value)}
-                              />
-                            </div>
-                            <div className="flex items-center text-xs text-amber-600">
-                              <span className="w-12 text-[10px] text-slate-400">Late:</span>
-                              <input 
-                                type="number" 
-                                className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500"
-                                value={rowData.lateDeductions}
-                                onChange={(e) => handleEditChange('lateDeductions', e.target.value)}
-                              />
+                              <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.leaveDeductions} onChange={(e) => handleEditChange('leaveDeductions', e.target.value)} />
                             </div>
                           </div>
                         ) : (
                           <div className="space-y-1">
                             <div className="text-[11px] text-rose-500 font-bold">-₹{c.tax.toLocaleString('en-IN')} Tax</div>
-                            {c.leaveDeductions > 0 && (
-                              <div className="text-[11px] text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} Leave</div>
-                            )}
-                            {c.lateDeductions > 0 && (
-                              <div className="text-[11px] text-amber-600">-₹{c.lateDeductions.toLocaleString('en-IN')} Late</div>
-                            )}
+                            {c.leaveDeductions > 0 && <div className="text-[11px] text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} Leave</div>}
                           </div>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-bold">
                         {isEditing ? (
-                          <div className="flex items-center">
-                            <span className="mr-1">+</span>
-                            <input 
-                              type="number" 
-                              className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500 text-emerald-600"
-                              value={rowData.reimbursements}
-                              onChange={(e) => handleEditChange('reimbursements', e.target.value)}
-                            />
-                          </div>
+                          <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.reimbursements} onChange={(e) => handleEditChange('reimbursements', e.target.value)} />
                         ) : (
                           `+₹${c.reimbursements.toLocaleString('en-IN')}`
                         )}
@@ -462,33 +454,9 @@ const SalaryProcessing: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
                         {isEditing ? (
-                          <div className="flex items-center justify-center space-x-2">
-                            <button 
-                              onClick={saveEdit}
-                              className="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg hover:bg-emerald-200 transition-colors"
-                              title="Save Changes"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                            </button>
-                            <button 
-                              onClick={cancelEditing}
-                              className="p-1.5 bg-rose-100 text-rose-600 rounded-lg hover:bg-rose-200 transition-colors"
-                              title="Cancel"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                          </div>
+                          <button onClick={saveEdit} className="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg mr-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg></button>
                         ) : (
-                          <button 
-                            onClick={() => startEditing(i)}
-                            disabled={editingIndex !== null}
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all disabled:opacity-30"
-                            title="Edit this record"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            </svg>
-                          </button>
+                          <button onClick={() => startEditing(i)} className="p-1.5 text-slate-400 hover:text-indigo-600"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                         )}
                       </td>
                     </tr>
@@ -497,20 +465,84 @@ const SalaryProcessing: React.FC = () => {
               </tbody>
             </table>
           </div>
-        </>
+        </section>
       )}
 
-      {calculations.length === 0 && !loading && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-20 text-center">
-          <div className="mx-auto w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-            <svg className="h-8 w-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-            </svg>
+      {/* 2. Payroll History Section */}
+      <section className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-black text-slate-900">Payroll History</h2>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{months[selectedMonth]} {selectedYear}</p>
           </div>
-          <h3 className="text-lg font-bold text-slate-900">Run Payroll</h3>
-          <p className="text-slate-500 text-sm mt-1 max-w-sm mx-auto">Select the period and click calculate to preview the payout for {months[selectedMonth]} {selectedYear}. Late check-ins and extra leaves are calculated as deductions.</p>
+          {history.length > 0 && (
+            <div className="bg-indigo-50 border border-indigo-100 px-4 py-2 rounded-2xl">
+              <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Processed Total</p>
+              <p className="text-xl font-black text-indigo-700">₹{totalHistoryPayout.toLocaleString('en-IN')}</p>
+            </div>
+          )}
         </div>
-      )}
+
+        {loadingHistory ? (
+          <div className="p-20 text-center bg-white rounded-3xl border border-slate-100 animate-pulse">
+            <span className="text-slate-400 font-bold text-sm">Synchronizing history...</span>
+          </div>
+        ) : history.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-20 text-center">
+            <div className="mx-auto w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
+              <svg className="h-8 w-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">No Records Found</h3>
+            <p className="text-slate-500 text-sm mt-1 max-w-sm mx-auto">Click calculate to see a preview of {months[selectedMonth]} {selectedYear} payroll before processing.</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-100">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Employee</th>
+                  <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Deductions</th>
+                  <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Reimb.</th>
+                  <th className="px-6 py-3 text-right text-[10px] font-bold text-slate-500 uppercase">Net Payout</th>
+                  <th className="px-6 py-3 text-center text-[10px] font-bold text-slate-500 uppercase">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {history.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <img className="h-8 w-8 rounded-full mr-3" src={`https://picsum.photos/seed/${p.userId}/100`} alt="" />
+                        <div className="text-sm font-bold text-slate-900">{p.employeeName}</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex flex-wrap gap-1">
+                        <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">TAX ₹{p.deductions.tax}</span>
+                        {p.deductions.leaveDeductions > 0 && <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">LEAVE ₹{p.deductions.leaveDeductions}</span>}
+                        {p.deductions.lateDeductions > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-black rounded border border-amber-100">LATE ₹{p.deductions.lateDeductions}</span>}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                       <span className={`text-sm font-bold ${p.reimbursements > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                         ₹{p.reimbursements.toLocaleString('en-IN')}
+                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <span className="text-sm font-black text-slate-900">₹{p.netSalary.toLocaleString('en-IN')}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <span className="px-2 py-1 bg-emerald-500 text-white text-[9px] font-black rounded uppercase tracking-widest">Processed</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 };

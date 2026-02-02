@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserProfile } from '../types';
+import { UserProfile, LeaveRequest } from '../types';
 import { db, collection, query, where, getDocs, Timestamp, addDoc, serverTimestamp } from '../firebase';
 
 interface AttendanceManagerProps {
@@ -11,6 +11,7 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ user }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [employees, setEmployees] = useState<UserProfile[]>([]);
   const [attendanceData, setAttendanceData] = useState<any[]>([]);
+  const [leaveData, setLeaveData] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [isMarking, setIsMarking] = useState<string | null>(null);
@@ -26,14 +27,32 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ user }) => {
       const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59);
 
-      const q = query(
+      const qAttendance = query(
         collection(db, 'attendance'),
         where('checkinAt', '>=', Timestamp.fromDate(startOfMonth)),
         where('checkinAt', '<=', Timestamp.fromDate(endOfMonth))
       );
 
-      const snapshot = await getDocs(q);
-      setAttendanceData(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const snapshotAttendance = await getDocs(qAttendance);
+      setAttendanceData(snapshotAttendance.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+      // 3. Fetch all approved leaves for the month
+      const qLeaves = query(
+        collection(db, 'leaveRequests'),
+        where('status', '==', 'Approved')
+      );
+      const snapshotLeaves = await getDocs(qLeaves);
+      const allApprovedLeaves = snapshotLeaves.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      
+      // Filter leaves that overlap with this month locally to avoid complex Firestore inequality queries
+      const filteredLeaves = allApprovedLeaves.filter((l: any) => {
+        const start = l.startDate.toDate();
+        const end = l.endDate.toDate();
+        return (start <= endOfMonth && end >= startOfMonth);
+      });
+      
+      setLeaveData(filteredLeaves);
+
     } catch (err) {
       console.error("Error fetching attendance manager data:", err);
     } finally {
@@ -60,19 +79,18 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ user }) => {
         isHalfDay: false,
         isOutOfOffice: false,
         isWfh: false,
-        managerId: "lkaVVbI904S1UYEGkvtonpciIiG2",
+        managerId: user.uid,
         processedAt: serverTimestamp(),
-        processedBy: "Yuvraj Dagur",
+        processedBy: user.name,
         userId: targetUser.uid,
         userName: targetUser.name,
         checkinAt: Timestamp.fromDate(recordDate),
         isLate: true,
         lateType: 1, // Full day deduction
         status: 'approved',
-        comment: "No Show unpaid leave without notifying."
+        comment: "No Show unpaid leave marked by HR."
       });
       
-      // Refresh local data
       await fetchMonthData();
     } catch (err) {
       console.error("Failed to mark unpaid leave:", err);
@@ -94,15 +112,32 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ user }) => {
 
   const getEmployeesForDay = (day: number) => {
     const dayDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+    dayDate.setHours(12, 0, 0, 0); // Mid-day for comparison
+
     return employees.map(emp => {
-      const record = attendanceData.find(a => {
+      // Check for attendance record first
+      const attendanceRecord = attendanceData.find(a => {
         const aDate = a.checkinAt.toDate();
         return a.userId === emp.uid &&
                aDate.getDate() === dayDate.getDate() && 
                aDate.getMonth() === dayDate.getMonth() && 
                aDate.getFullYear() === dayDate.getFullYear();
       });
-      return { ...emp, attendance: record };
+
+      // Check for approved leave if no attendance
+      let leaveRecord = null;
+      if (!attendanceRecord) {
+        leaveRecord = leaveData.find(l => {
+          if (l.userId !== emp.uid) return false;
+          const start = l.startDate.toDate();
+          const end = l.endDate.toDate();
+          start.setHours(0,0,0,0);
+          end.setHours(23,59,59,999);
+          return dayDate >= start && dayDate <= end;
+        });
+      }
+
+      return { ...emp, attendance: attendanceRecord, leave: leaveRecord };
     });
   };
 
@@ -126,7 +161,6 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ user }) => {
         </div>
       </header>
 
-      {/* Calendar Grid */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/50">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
@@ -166,7 +200,6 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Daily List Drawer/Modal */}
       {selectedDay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelectedDay(null)}></div>
@@ -196,14 +229,23 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ user }) => {
                     {emp.attendance ? (
                       <div className="flex flex-col items-end">
                         <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
-                          emp.attendance.status === 'unpaid_leave' 
+                          emp.attendance.status === 'unpaid_leave' || (emp.attendance.isLate && emp.attendance.lateType === 1)
                             ? 'bg-rose-50 text-rose-600 border-rose-100' 
                             : 'bg-emerald-50 text-emerald-600 border-emerald-100'
                         }`}>
-                          {emp.attendance.status === 'unpaid_leave' ? 'Unpaid Leave' : 'Checked In'}
+                          {emp.attendance.status === 'unpaid_leave' || (emp.attendance.isLate && emp.attendance.lateType === 1) ? 'Unpaid Leave' : 'Checked In'}
                         </span>
                         <span className="text-[9px] text-slate-400 font-bold mt-1 uppercase">
                           {emp.attendance.checkinAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    ) : emp.leave ? (
+                      <div className="flex flex-col items-end">
+                        <span className="px-4 py-1.5 bg-blue-50 text-blue-600 border border-blue-100 rounded-full text-[10px] font-black uppercase tracking-widest">
+                          On Leave
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-bold mt-1 uppercase">
+                          {emp.leave.leaveType} Approved
                         </span>
                       </div>
                     ) : (
