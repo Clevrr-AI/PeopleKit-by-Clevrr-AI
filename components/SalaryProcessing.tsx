@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserProfile, SalaryConfig, LeaveRequest, Payslip, Reimbursement } from '../types';
-import { db, collection, getDocs, query, where, addDoc, serverTimestamp, doc, getDoc } from '../firebase';
+import { db, collection, getDocs, query, where, addDoc, serverTimestamp, doc, getDoc, updateDoc, increment, arrayUnion } from '../firebase';
 
 const SalaryProcessing: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -47,27 +47,34 @@ const SalaryProcessing: React.FC = () => {
         const tax = config.taxDeduction;
         const payPerDay = baseSalary / 30;
 
+        // Query for leaves (Approved + Pending)
         const leaveQ = query(
           collection(db, 'leaveRequests'),
-          where('userId', '==', user.uid),
-          where('status', '==', 'Approved')
+          where('userId', '==', user.uid)
         );
 
         const leaveSnap = await getDocs(leaveQ);
-        const leaves = leaveSnap.docs.map(d => d.data() as LeaveRequest)
+        const allLeaves = leaveSnap.docs.map(d => d.data() as LeaveRequest)
           .filter(l => {
             const lDate = l.startDate.toDate();
-            return lDate >= startOfMonth && lDate <= endOfMonth;
+            return lDate >= startOfMonth && lDate <= endOfMonth && (l.status === 'Approved' || l.status === 'Pending');
           });
 
-        const actualCL = leaves.filter(l => l.leaveType === 'CL').reduce((acc, curr) => acc + curr.totalDays, 0);
-        const actualSL = leaves.filter(l => l.leaveType === 'SL').reduce((acc, curr) => acc + curr.totalDays, 0);
+        const approvedCL = allLeaves.filter(l => l.leaveType === 'CL' && l.status === 'Approved').reduce((acc, curr) => acc + curr.totalDays, 0);
+        const approvedSL = allLeaves.filter(l => l.leaveType === 'SL' && l.status === 'Approved').reduce((acc, curr) => acc + curr.totalDays, 0);
+        const approvedHDLCount = allLeaves.filter(l => l.leaveType === 'HDL' && l.status === 'Approved').length;
 
-        const extraCL = Math.max(0, actualCL - 4);
-        const extraSL = Math.max(0, actualSL - 2);
+        const pendingCL = allLeaves.filter(l => l.leaveType === 'CL' && l.status === 'Pending').reduce((acc, curr) => acc + curr.totalDays, 0);
+        const pendingSL = allLeaves.filter(l => l.leaveType === 'SL' && l.status === 'Pending').reduce((acc, curr) => acc + curr.totalDays, 0);
+        const pendingHDLCount = allLeaves.filter(l => l.leaveType === 'HDL' && l.status === 'Pending').length;
+
+        // Deductions logic
+        const extraCL = Math.max(0, approvedCL - 4);
+        const extraSL = Math.max(0, approvedSL - 2);
         const unpaidLeaveDays = extraCL + extraSL;
         const leaveDeductionAmount = unpaidLeaveDays * payPerDay;
 
+        // Attendance (Late tracking)
         const attendanceQ = query(
           collection(db, 'attendance'),
           where('userId', '==', user.uid),
@@ -83,6 +90,7 @@ const SalaryProcessing: React.FC = () => {
         const lateDays = lateAttendances.reduce((acc, curr) => acc + (curr.lateType || 0), 0);
         const lateDeductionAmount = lateDays * payPerDay;
 
+        // Approved Reimbursements
         const reimQ = query(
           collection(db, 'reimbursements'),
           where('userId', '==', user.uid),
@@ -97,6 +105,12 @@ const SalaryProcessing: React.FC = () => {
         
         const totalReimbursementsForUser = reimbursements.reduce((acc, curr) => acc + curr.amount, 0);
 
+        // Retention Bonus Calculation
+        // Leaves: Approved CL + Approved SL + Pending CL + Pending SL + Late checkins + Half days (Approved + Pending)
+        const totalLeavesForBonus = approvedCL + approvedSL + pendingCL + pendingSL + lateDays + (approvedHDLCount * 0.5) + (pendingHDLCount * 0.5);
+        const eligibleForBonus = totalLeavesForBonus < 2;
+        const bonusAmount = eligibleForBonus ? payPerDay * 2 : 0;
+
         const totalDeductions = tax + leaveDeductionAmount + lateDeductionAmount;
         const netSalary = baseSalary - totalDeductions + totalReimbursementsForUser;
 
@@ -108,12 +122,16 @@ const SalaryProcessing: React.FC = () => {
           leaveDeductions: leaveDeductionAmount,
           lateDeductions: lateDeductionAmount,
           reimbursements: totalReimbursementsForUser,
-          slCount: actualSL,
-          clCount: actualCL,
+          slCount: approvedSL,
+          clCount: approvedCL,
           lateDays,
           unpaidLeaveDays,
           netSalary,
-          totalDeductions
+          totalDeductions,
+          // Bonus fields
+          totalLeavesForBonus,
+          bonusAmount,
+          eligibleForBonus
         });
       }
 
@@ -132,8 +150,11 @@ const SalaryProcessing: React.FC = () => {
     setProcessing(true);
     try {
       for (const calc of calculations) {
+        const userId = calc.user.uid;
+
+        // 1. Add Payslip
         const payslip: Payslip = {
-          userId: calc.user.uid,
+          userId: userId,
           employeeName: calc.user.name,
           month: selectedMonth,
           monthName: months[selectedMonth],
@@ -154,13 +175,47 @@ const SalaryProcessing: React.FC = () => {
         };
 
         await addDoc(collection(db, 'payslips'), payslip);
+
+        // 2. Reset Leave Balances
+        await updateDoc(doc(db, 'leaveBalances', userId), {
+          currentMonthClUsed: 0,
+          currentMonthSlUsed: 0,
+          lastMonthlyReset: serverTimestamp(),
+          lateWarningLeft: 3
+        });
+
+        // 3. Update Retention Bonus
+        const bonusRef = doc(db, 'retentionBonus', userId);
+        const bonusSnap = await getDoc(bonusRef);
+        
+        const bonusEntry = {
+          month: months[selectedMonth],
+          leaves: calc.totalLeavesForBonus,
+          bonus: calc.bonusAmount
+        };
+
+        if (bonusSnap.exists()) {
+          await updateDoc(bonusRef, {
+            totalBonus: increment(calc.bonusAmount),
+            bonusMonths: arrayUnion(bonusEntry)
+          });
+        } else {
+          // If for some reason the doc doesn't exist, create it
+          await addDoc(collection(db, 'retentionBonus'), {
+            userId: userId,
+            employeeName: calc.user.name,
+            totalBonus: calc.bonusAmount,
+            bonusMonths: [bonusEntry],
+            year: selectedYear
+          });
+        }
       }
-      alert(`Processed ${calculations.length} payslips successfully!`);
+      alert(`Processed ${calculations.length} payroll records successfully! Leave balances reset and retention bonuses updated.`);
       setCalculations([]);
       setEditingIndex(null);
     } catch (err) {
       console.error("Processing error:", err);
-      alert("Failed to process some payslips.");
+      alert("Failed to process some records.");
     } finally {
       setProcessing(false);
     }
@@ -281,7 +336,7 @@ const SalaryProcessing: React.FC = () => {
                 disabled={processing || editingIndex !== null}
                 className="bg-white text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-50 shadow-sm transition-all disabled:opacity-50"
               >
-                {processing ? '...' : 'Process'}
+                {processing ? 'Processing...' : 'Finalize & Reset'}
               </button>
             </div>
           </div>
@@ -292,11 +347,11 @@ const SalaryProcessing: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Employee</th>
                   <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Base Salary</th>
-                  <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Tax</th>
-                  <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Deductions</th>
+                  <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Leaves / Bonus</th>
+                  <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Tax / Ded.</th>
                   <th className="px-6 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Reimb.</th>
                   <th className="px-6 py-3 text-right text-[10px] font-bold text-slate-500 uppercase">Net Salary</th>
-                  <th className="px-6 py-3 text-center text-[10px] font-bold text-slate-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-center text-[10px] font-bold text-slate-500 uppercase">Edit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -327,24 +382,33 @@ const SalaryProcessing: React.FC = () => {
                           `₹${c.baseSalary.toLocaleString('en-IN')}`
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-rose-500">
-                        {isEditing ? (
-                          <div className="flex items-center">
-                            <span className="mr-1">-</span>
-                            <input 
-                              type="number" 
-                              className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500 text-rose-500"
-                              value={rowData.tax}
-                              onChange={(e) => handleEditChange('tax', e.target.value)}
-                            />
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="space-y-1">
+                          <div className="flex items-center text-[10px] font-bold">
+                            <span className="text-slate-400 uppercase mr-1">Days:</span>
+                            <span className={c.totalLeavesForBonus >= 2 ? 'text-rose-500' : 'text-emerald-500'}>{c.totalLeavesForBonus.toFixed(1)}</span>
                           </div>
-                        ) : (
-                          `-₹${c.tax.toLocaleString('en-IN')}`
-                        )}
+                          {c.eligibleForBonus ? (
+                            <div className="text-[10px] font-black text-indigo-600 uppercase bg-indigo-50 px-1.5 py-0.5 rounded inline-block">
+                              +₹{c.bonusAmount.toLocaleString('en-IN')} Bonus
+                            </div>
+                          ) : (
+                            <div className="text-[10px] font-bold text-slate-400 uppercase italic">No Bonus</div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {isEditing ? (
                           <div className="space-y-2">
+                             <div className="flex items-center text-xs text-rose-500">
+                              <span className="w-12 text-[10px] text-slate-400">Tax:</span>
+                              <input 
+                                type="number" 
+                                className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:ring-1 focus:ring-indigo-500"
+                                value={rowData.tax}
+                                onChange={(e) => handleEditChange('tax', e.target.value)}
+                              />
+                            </div>
                             <div className="flex items-center text-xs text-rose-500">
                               <span className="w-12 text-[10px] text-slate-400">Leave:</span>
                               <input 
@@ -366,14 +430,12 @@ const SalaryProcessing: React.FC = () => {
                           </div>
                         ) : (
                           <div className="space-y-1">
+                            <div className="text-[11px] text-rose-500 font-bold">-₹{c.tax.toLocaleString('en-IN')} Tax</div>
                             {c.leaveDeductions > 0 && (
-                              <div className="text-sm text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} <span className="text-[10px] text-slate-400 font-bold ml-1">({c.unpaidLeaveDays} Unpaid Leaves)</span></div>
+                              <div className="text-[11px] text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} Leave</div>
                             )}
                             {c.lateDeductions > 0 && (
-                              <div className="text-sm text-amber-600">-₹{c.lateDeductions.toLocaleString('en-IN')} <span className="text-[10px] text-slate-400 font-bold ml-1">({c.lateDays} Late Days)</span></div>
-                            )}
-                            {c.leaveDeductions === 0 && c.lateDeductions === 0 && (
-                              <span className="text-xs text-slate-400 italic">No deductions</span>
+                              <div className="text-[11px] text-amber-600">-₹{c.lateDeductions.toLocaleString('en-IN')} Late</div>
                             )}
                           </div>
                         )}
