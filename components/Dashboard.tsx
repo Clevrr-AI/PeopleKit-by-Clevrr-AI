@@ -9,7 +9,7 @@ import EscalatedRequests from './EscalatedRequests';
 import LateWarningWidget from './LateWarningWidget';
 import AttendanceTrendChart from './AttendanceTrendChart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { db, collection, query, where, orderBy, limit, onSnapshot } from '../firebase';
+import { db, collection, query, where, orderBy, onSnapshot, Timestamp } from '../firebase';
 
 interface DashboardProps {
   user: UserProfile;
@@ -23,30 +23,61 @@ const Dashboard: React.FC<DashboardProps> = ({ user, leaveBalances, retentionBon
   useEffect(() => {
     if (!user.uid) return;
 
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    
+    // 1. Pre-generate empty month data so the chart renders immediately
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const monthShort = now.toLocaleString('default', { month: 'short' });
+    const initialArray = Array.from({ length: daysInMonth }, (_, i) => ({
+      date: `${i + 1} ${monthShort}`,
+      dayNumber: i + 1,
+      timeValue: null,
+      label: 'No Data'
+    }));
+    setAttendanceTrend(initialArray);
+
+    // 2. Start Real-time listener
     const q = query(
       collection(db, 'attendance'),
       where('userId', '==', user.uid),
-      orderBy('checkinAt', 'desc'),
-      limit(14)
+      where('checkinAt', '>=', Timestamp.fromDate(startOfMonth)),
+      where('checkinAt', '<=', Timestamp.fromDate(endOfMonth)),
+      orderBy('checkinAt', 'asc')
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => {
+      const attendanceMap = new Map();
+      snapshot.docs.forEach(doc => {
         const attendance = doc.data();
         const checkinDate = attendance.checkinAt.toDate();
+        const day = checkinDate.getDate();
+        
         const hours = checkinDate.getHours();
         const minutes = checkinDate.getMinutes();
         
-        return {
-          date: checkinDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+        attendanceMap.set(day, {
           timeValue: hours + (minutes / 60),
-          timestamp: checkinDate.getTime(),
           label: checkinDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
+        });
       });
       
-      // Sort chronologically for the line chart
-      setAttendanceTrend(data.sort((a, b) => a.timestamp - b.timestamp));
+      const fullMonthArray = Array.from({ length: daysInMonth }, (_, i) => {
+        const day = i + 1;
+        const record = attendanceMap.get(day);
+        
+        return {
+          date: `${day} ${monthShort}`,
+          dayNumber: day,
+          timeValue: record ? record.timeValue : null,
+          label: record ? record.label : 'No Data'
+        };
+      });
+
+      setAttendanceTrend(fullMonthArray);
+    }, (error) => {
+      console.error("Attendance Query Error (Missing Index?):", error);
     });
 
     return () => unsubscribe();
