@@ -47,7 +47,7 @@ const AttendanceTrendChart: React.FC<AttendanceTrendChartProps> = ({ data }) => 
           </div>
           <div className="flex items-center">
             <span className="w-2 h-2 rounded-full bg-rose-400 mr-1.5"></span>
-            <span className="text-slate-500">Cutoff (10:30)</span>
+            <span className="text-slate-500">Cutoff (10:15)</span>
           </div>
         </div>
       </div>
