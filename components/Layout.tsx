@@ -161,7 +161,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
                 </div>
               </div>
               <div className="flex items-center justify-center space-x-2 pt-2">
-                <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.17</span>
+                <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.18</span>
                 <button 
                   onClick={onHardRefresh}
                   className="p-1 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
@@ -210,7 +210,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
               </div>
             </div>
             <div className="flex items-center justify-center space-x-2 pt-2">
-              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.17</span>
+              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.18</span>
               <button 
                 onClick={onHardRefresh}
                 className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
