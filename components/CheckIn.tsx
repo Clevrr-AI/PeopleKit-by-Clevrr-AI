@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserProfile, LeaveBalances } from '../types';
+import { UserProfile, LeaveBalances, LeaveRequest } from '../types';
 // Added missing serverTimestamp import
 import { db, collection, addDoc, Timestamp, GeoPoint, doc, getDoc, runTransaction, increment, query, where, orderBy, onSnapshot, updateDoc, serverTimestamp } from '../firebase';
 
@@ -19,17 +19,30 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
   const [lateDetail, setLateDetail] = useState<string | null>(null);
   const [distanceInfo, setDistanceInfo] = useState<number | null>(null);
   const [currentCoords, setCurrentCoords] = useState<{lat: number, lng: number} | null>(null);
+  const [userBalances, setUserBalances] = useState<LeaveBalances | null>(null);
   
-  // Founder state for daily log
+  // Daily Logs
   const [dailyCheckins, setDailyCheckins] = useState<any[]>([]);
+  const [dailyLeaves, setDailyLeaves] = useState<LeaveRequest[]>([]);
   const [loadingLog, setLoadingLog] = useState(false);
+  const [loadingLeaves, setLoadingLeaves] = useState(false);
   const [rejectionAction, setRejectionAction] = useState<{ id: string; reason: string } | null>(null);
   const isFounder = user.role === 'Founder';
 
   // Check if current user has already checked in today
   const hasCheckedInToday = dailyCheckins.some(record => record.userId === user.uid);
 
-  // Fetch daily log for everyone
+  // Fetch user's leave balances to check WFH limit
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'leaveBalances', user.uid), (snap) => {
+      if (snap.exists()) {
+        setUserBalances(snap.data() as LeaveBalances);
+      }
+    });
+    return () => unsub();
+  }, [user.uid]);
+
+  // Fetch daily attendance log
   useEffect(() => {
     setLoadingLog(true);
     const todayStart = new Date();
@@ -59,6 +72,36 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
 
       setDailyCheckins(recordsWithNames);
       setLoadingLog(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch daily approved leaves
+  useEffect(() => {
+    setLoadingLeaves(true);
+    const today = new Date();
+    today.setHours(12, 0, 0, 0); // Reference for overlap check
+
+    const q = query(
+      collection(db, 'leaveRequests'),
+      where('status', '==', 'Approved')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const allApproved = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LeaveRequest));
+      
+      // Filter locally for date overlap
+      const todayLeaves = allApproved.filter(leave => {
+        const start = leave.startDate.toDate();
+        const end = leave.endDate.toDate();
+        start.setHours(0,0,0,0);
+        end.setHours(23,59,59,999);
+        return today >= start && today <= end;
+      });
+
+      setDailyLeaves(todayLeaves);
+      setLoadingLeaves(false);
     });
 
     return () => unsubscribe();
@@ -363,7 +406,7 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Daily Attendance Log - Visible to all */}
+      {/* Daily Attendance Log */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in duration-700">
         <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
           <div>
@@ -476,6 +519,70 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
                           </div>
                         )}
                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Daily Leave Log */}
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in duration-700 delay-100">
+        <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-black text-slate-900">Daily Leave Log</h2>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Scheduled Absences - {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}</p>
+          </div>
+          <div className="bg-slate-900 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider">
+            {dailyLeaves.length} On Leave
+          </div>
+        </div>
+        
+        {loadingLeaves ? (
+          <div className="p-20 text-center"><p className="text-slate-400 font-bold text-sm">Synchronizing leaves...</p></div>
+        ) : dailyLeaves.length === 0 ? (
+          <div className="p-20 text-center">
+            <div className="mx-auto w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
+              <svg className="h-6 w-6 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" strokeWidth={2} /></svg>
+            </div>
+            <p className="text-slate-400 font-black text-sm uppercase tracking-wide">No approved leaves for today</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-100">
+              <thead className="bg-slate-50/30">
+                <tr>
+                  <th className="px-8 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Employee</th>
+                  <th className="px-8 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
+                  <th className="px-8 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Reason for Absence</th>
+                  <th className="px-8 py-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Approved By</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {dailyLeaves.map((leave) => (
+                  <tr key={leave.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-8 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <img className="h-9 w-9 rounded-2xl mr-3 border border-slate-100" src={`https://picsum.photos/seed/${leave.userId}/100`} alt="" />
+                        <div className="text-sm font-black text-slate-900">{leave.employeeName}</div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                        leave.leaveType === 'SL' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-blue-50 text-blue-600 border border-blue-100'
+                      }`}>
+                        {leave.leaveType === 'SL' ? 'Sick Leave' : leave.leaveType === 'CL' ? 'Casual Leave' : 'Half Day'}
+                      </span>
+                    </td>
+                    <td className="px-8 py-4 text-sm text-slate-600 italic max-w-xs truncate font-medium">
+                      "{leave.reason}"
+                    </td>
+                    <td className="px-8 py-4 whitespace-nowrap text-right">
+                      <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg uppercase">
+                        {leave.approvedBy || 'System'}
+                      </span>
                     </td>
                   </tr>
                 ))}
