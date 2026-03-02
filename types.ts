@@ -85,7 +85,6 @@ export interface LeaveBalances {
   currentMonthSlUsed: number;
   hdlCount: number;
   lateWarningLeft: number;
-  wfhLeft: number;
 }
 
 export interface BonusMonth {

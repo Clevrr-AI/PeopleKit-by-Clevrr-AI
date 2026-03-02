@@ -16,6 +16,7 @@ firebase.json
 
 # Editor directories and files
 .vscode/*
+migrated_prompt_history
 !.vscode/extensions.json
 .idea
 .firebase

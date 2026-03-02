@@ -46,6 +46,16 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
         Dashboard
       </button>
 
+      <button 
+        onClick={() => handleNavClick('analytics')}
+        className={`${activeView === 'analytics' ? 'bg-slate-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'} group w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors`}
+      >
+        <svg className={`${activeView === 'analytics' ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-500'} mr-3 h-5 w-5`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+        Analytics
+      </button>
+
       {isFounder && (
         <button 
           onClick={() => handleNavClick('attendance')}
@@ -161,7 +171,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
                 </div>
               </div>
               <div className="flex items-center justify-center space-x-2 pt-2">
-                <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.19</span>
+                <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.21</span>
                 <button 
                   onClick={onHardRefresh}
                   className="p-1 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
@@ -210,7 +220,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeView, s
               </div>
             </div>
             <div className="flex items-center justify-center space-x-2 pt-2">
-              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.19</span>
+              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">v1.0.21</span>
               <button 
                 onClick={onHardRefresh}
                 className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
