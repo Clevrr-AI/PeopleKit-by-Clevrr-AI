@@ -107,15 +107,22 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
     return () => unsubscribe();
   }, []);
 
-  const handleApproveRemote = async (id: string) => {
+  const handleApproveRemote = async (recordId: string) => {
     try {
-      await updateDoc(doc(db, 'attendance', id), {
-        status: 'approved',
-        processedBy: user.name,
-        processedAt: serverTimestamp()
+      const record = dailyCheckins.find(r => r.id === recordId);
+      if (!record) return;
+
+      await runTransaction(db, async (transaction) => {
+        const attendanceRef = doc(db, 'attendance', recordId);        
+        transaction.update(attendanceRef, {
+          status: 'approved',
+          processedBy: user.name,
+          processedAt: serverTimestamp()
+        });
       });
     } catch (err) {
       console.error("Error approving remote checkin:", err);
+      alert("Failed to approve remote check-in.");
     }
   };
 
@@ -195,6 +202,7 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
       let finalIsLate = false;
       let finalLateType: number | null = null;
       let lateMsg: string | null = null;
+      let latePassUsed = false;
 
       await runTransaction(db, async (transaction) => {
         const balanceRef = doc(db, 'leaveBalances', user.uid);
@@ -209,6 +217,7 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
             transaction.update(balanceRef, { lateWarningLeft: increment(-1) });
             finalIsLate = false;
             finalLateType = null;
+            latePassUsed = true;
             lateMsg = `Late arrival warning used. ${newWarningCount} warnings remaining.`;
           } else {
             // Option B: All warnings exhausted, mark as late
@@ -232,6 +241,7 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
           isOutOfOffice: isOoo,
           isLate: finalIsLate,
           lateType: finalLateType,
+          latePassUsed: latePassUsed,
         };
 
         if (isWfh || isOoo) {
@@ -471,9 +481,16 @@ const CheckIn: React.FC<CheckInProps> = ({ user }) => {
                             {record.lateType === 1 ? 'Full Day Late' : 'Half Day Late'}
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-md text-[10px] font-black uppercase tracking-wider">
-                            On Time
-                          </span>
+                          <div className="flex items-center space-x-2">
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-md text-[10px] font-black uppercase tracking-wider">
+                              On Time
+                            </span>
+                            {record.latePassUsed && (
+                              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-md text-[10px] font-black uppercase tracking-wider">
+                                Late Pass Used
+                              </span>
+                            )}
+                          </div>
                         )}
 
                         {/* Remote Status Handling */}

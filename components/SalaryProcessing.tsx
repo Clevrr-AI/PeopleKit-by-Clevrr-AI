@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserProfile, SalaryConfig, LeaveRequest, Payslip, Reimbursement } from '../types';
+import { UserProfile, SalaryConfig, LeaveRequest, Payslip, Reimbursement, LeaveBalances } from '../types';
 import { db, collection, getDocs, query, where, addDoc, serverTimestamp, doc, getDoc, updateDoc, increment, arrayUnion, orderBy } from '../firebase';
 
 const SalaryProcessing: React.FC = () => {
@@ -75,6 +75,12 @@ const SalaryProcessing: React.FC = () => {
         const tax = config.taxDeduction;
         const payPerDay = baseSalary / 30;
 
+        // Fetch current leave balances for HDL count
+        const balanceSnap = await getDoc(doc(db, 'leaveBalances', user.uid));
+        const balances = balanceSnap.exists() ? (balanceSnap.data() as LeaveBalances) : null;
+        const hdlCount = balances ? (balances.hdlCount || 0) : 0;
+        const hdlDeductionAmount = hdlCount * (payPerDay * 0.5);
+
         // Query for leaves (Approved + Pending)
         const leaveQ = query(
           collection(db, 'leaveRequests'),
@@ -90,11 +96,9 @@ const SalaryProcessing: React.FC = () => {
 
         const approvedCL = allLeaves.filter(l => l.leaveType === 'CL' && l.status === 'Approved').reduce((acc, curr) => acc + curr.totalDays, 0);
         const approvedSL = allLeaves.filter(l => l.leaveType === 'SL' && l.status === 'Approved').reduce((acc, curr) => acc + curr.totalDays, 0);
-        const approvedHDLCount = allLeaves.filter(l => l.leaveType === 'HDL' && l.status === 'Approved').length;
-
+        
         const pendingCL = allLeaves.filter(l => l.leaveType === 'CL' && l.status === 'Pending').reduce((acc, curr) => acc + curr.totalDays, 0);
         const pendingSL = allLeaves.filter(l => l.leaveType === 'SL' && l.status === 'Pending').reduce((acc, curr) => acc + curr.totalDays, 0);
-        const pendingHDLCount = allLeaves.filter(l => l.leaveType === 'HDL' && l.status === 'Pending').length;
 
         // Deductions logic
         const extraCL = Math.max(0, approvedCL - 4);
@@ -134,11 +138,12 @@ const SalaryProcessing: React.FC = () => {
         const totalReimbursementsForUser = reimbursements.reduce((acc, curr) => acc + curr.amount, 0);
 
         // Retention Bonus Calculation
-        const totalLeavesForBonus = approvedCL + approvedSL + pendingCL + pendingSL + lateDays + (approvedHDLCount * 0.5) + (pendingHDLCount * 0.5);
+        // Note: hdlCount already represents instances. Multiply by 0.5 to get full day equivalence for bonus threshold.
+        const totalLeavesForBonus = approvedCL + approvedSL + pendingCL + pendingSL + lateDays + (hdlCount * 0.5);
         const eligibleForBonus = totalLeavesForBonus < 2;
         const bonusAmount = eligibleForBonus ? payPerDay * 2 : 0;
 
-        const totalDeductions = tax + leaveDeductionAmount + lateDeductionAmount;
+        const totalDeductions = tax + leaveDeductionAmount + lateDeductionAmount + hdlDeductionAmount;
         const netSalary = baseSalary - totalDeductions + totalReimbursementsForUser;
 
         calcs.push({
@@ -148,9 +153,11 @@ const SalaryProcessing: React.FC = () => {
           tax,
           leaveDeductions: leaveDeductionAmount,
           lateDeductions: lateDeductionAmount,
+          hdlDeductions: hdlDeductionAmount,
           reimbursements: totalReimbursementsForUser,
           slCount: approvedSL,
           clCount: approvedCL,
+          hdlCount,
           lateDays,
           unpaidLeaveDays,
           netSalary,
@@ -194,8 +201,10 @@ const SalaryProcessing: React.FC = () => {
             tax: calc.tax,
             leaveDeductions: calc.leaveDeductions,
             lateDeductions: calc.lateDeductions,
+            hdlDeductions: calc.hdlDeductions,
             sl: calc.slCount,
             cl: calc.clCount,
+            hdl: calc.hdlCount,
             lateDays: calc.lateDays
           },
           reimbursements: calc.reimbursements,
@@ -205,12 +214,13 @@ const SalaryProcessing: React.FC = () => {
 
         await addDoc(collection(db, 'payslips'), payslip);
 
-        // 2. Reset Leave Balances
+        // 2. Reset Leave Balances, WFH Quota, and HDL Count
         await updateDoc(doc(db, 'leaveBalances', userId), {
           currentMonthClUsed: 0,
           currentMonthSlUsed: 0,
           lastMonthlyReset: serverTimestamp(),
-          lateWarningLeft: 3
+          lateWarningLeft: 3,
+          hdlCount: 0
         });
 
         // 3. Update Retention Bonus
@@ -267,9 +277,10 @@ const SalaryProcessing: React.FC = () => {
     const updatedTax = parseFloat(editValues.tax) || 0;
     const updatedLeaveDed = parseFloat(editValues.leaveDeductions) || 0;
     const updatedLateDed = parseFloat(editValues.lateDeductions) || 0;
+    const updatedHdlDed = parseFloat(editValues.hdlDeductions) || 0;
     const updatedReimb = parseFloat(editValues.reimbursements) || 0;
     
-    const totalDeductions = updatedTax + updatedLeaveDed + updatedLateDed;
+    const totalDeductions = updatedTax + updatedLeaveDed + updatedLateDed + updatedHdlDed;
     const netSalary = updatedBase - totalDeductions + updatedReimb;
 
     newCalcs[editingIndex] = {
@@ -278,6 +289,7 @@ const SalaryProcessing: React.FC = () => {
       tax: updatedTax,
       leaveDeductions: updatedLeaveDed,
       lateDeductions: updatedLateDed,
+      hdlDeductions: updatedHdlDed,
       reimbursements: updatedReimb,
       totalDeductions,
       netSalary
@@ -297,9 +309,10 @@ const SalaryProcessing: React.FC = () => {
     const tax = parseFloat(field === 'tax' ? value : updatedValues.tax) || 0;
     const lDed = parseFloat(field === 'leaveDeductions' ? value : updatedValues.leaveDeductions) || 0;
     const ltDed = parseFloat(field === 'lateDeductions' ? value : updatedValues.lateDeductions) || 0;
+    const hDed = parseFloat(field === 'hdlDeductions' ? value : updatedValues.hdlDeductions) || 0;
     const reim = parseFloat(field === 'reimbursements' ? value : updatedValues.reimbursements) || 0;
     
-    const totalDeductions = tax + lDed + ltDed;
+    const totalDeductions = tax + lDed + ltDed + hDed;
     const netSalary = base - totalDeductions + reim;
     
     setEditValues({ ...updatedValues, totalDeductions, netSalary });
@@ -409,7 +422,7 @@ const SalaryProcessing: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="space-y-1">
                           <div className="flex items-center text-[10px] font-bold">
-                            <span className="text-slate-400 uppercase mr-1">Days:</span>
+                            <span className="text-slate-400 uppercase mr-1">Absence Days:</span>
                             <span className={c.totalLeavesForBonus >= 2 ? 'text-rose-500' : 'text-emerald-500'}>{c.totalLeavesForBonus.toFixed(1)}</span>
                           </div>
                           {c.eligibleForBonus ? (
@@ -429,14 +442,15 @@ const SalaryProcessing: React.FC = () => {
                               <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.tax} onChange={(e) => handleEditChange('tax', e.target.value)} />
                             </div>
                             <div className="flex items-center text-xs text-rose-500">
-                              <span className="w-12 text-[10px] text-slate-400">Leave:</span>
-                              <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.leaveDeductions} onChange={(e) => handleEditChange('leaveDeductions', e.target.value)} />
+                              <span className="w-12 text-[10px] text-slate-400">HDL:</span>
+                              <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.hdlDeductions} onChange={(e) => handleEditChange('hdlDeductions', e.target.value)} />
                             </div>
                           </div>
                         ) : (
                           <div className="space-y-1">
                             <div className="text-[11px] text-rose-500 font-bold">-₹{c.tax.toLocaleString('en-IN')} Tax</div>
-                            {c.leaveDeductions > 0 && <div className="text-[11px] text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} Leave</div>}
+                            {c.hdlDeductions > 0 && <div className="text-[11px] text-rose-500 font-bold">-₹{c.hdlDeductions.toLocaleString('en-IN')} HDL ({c.hdlCount})</div>}
+                            {c.leaveDeductions > 0 && <div className="text-[11px] text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} Unpaid</div>}
                           </div>
                         )}
                       </td>
@@ -454,7 +468,10 @@ const SalaryProcessing: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
                         {isEditing ? (
-                          <button onClick={saveEdit} className="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg mr-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg></button>
+                          <div className="flex space-x-1 justify-center">
+                            <button onClick={saveEdit} className="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg></button>
+                            <button onClick={cancelEditing} className="p-1.5 bg-slate-100 text-slate-400 rounded-lg"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6" /></svg></button>
+                          </div>
                         ) : (
                           <button onClick={() => startEditing(i)} className="p-1.5 text-slate-400 hover:text-indigo-600"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                         )}
@@ -521,6 +538,7 @@ const SalaryProcessing: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-wrap gap-1">
                         <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">TAX ₹{p.deductions.tax}</span>
+                        {p.deductions.hdlDeductions > 0 && <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">HDL ₹{p.deductions.hdlDeductions}</span>}
                         {p.deductions.leaveDeductions > 0 && <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">LEAVE ₹{p.deductions.leaveDeductions}</span>}
                         {p.deductions.lateDeductions > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-black rounded border border-amber-100">LATE ₹{p.deductions.lateDeductions}</span>}
                       </div>

@@ -235,6 +235,11 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ user }) => {
                         }`}>
                           {emp.attendance.status === 'unpaid_leave' || (emp.attendance.isLate && emp.attendance.lateType === 1) ? 'Unpaid Leave' : 'Checked In'}
                         </span>
+                        {emp.attendance.latePassUsed && (
+                          <span className="mt-1 px-3 py-1 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full text-[9px] font-black uppercase tracking-widest text-center">
+                            Late Pass Used
+                          </span>
+                        )}
                         <span className="text-[9px] text-slate-400 font-bold mt-1 uppercase">
                           {emp.attendance.checkinAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
