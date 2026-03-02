@@ -50,10 +50,12 @@ export interface Payslip {
   deductions: {
     tax: number;
     leaveDeductions: number;
-    lateDeductions: number; // New field
+    lateDeductions: number;
+    hdlDeductions: number; // New field for half-day deductions
     sl: number;
     cl: number;
-    lateDays: number; // New field
+    hdl: number; // Track count of half days for transparency
+    lateDays: number;
   };
   reimbursements: number;
   netSalary: number;
@@ -83,6 +85,7 @@ export interface LeaveBalances {
   currentMonthSlUsed: number;
   hdlCount: number;
   lateWarningLeft: number;
+  wfhLeft: number;
 }
 
 export interface BonusMonth {
@@ -120,7 +123,7 @@ export interface LeaveRequest {
   cancelledBy: string | null;
 }
 
-export type ViewType = 'dashboard' | 'apply-leave' | 'profile' | 'salaries' | 'payslips' | 'reimbursements' | 'team' | 'check-in' | 'attendance';
+export type ViewType = 'dashboard' | 'apply-leave' | 'profile' | 'salaries' | 'payslips' | 'reimbursements' | 'team' | 'check-in' | 'attendance' | 'analytics';
 
 export interface AppState {
   user: UserProfile | null;

@@ -12,7 +12,6 @@ const ApplyLeave: React.FC<ApplyLeaveProps> = ({ user, onSuccess }) => {
   const [leaveType, setLeaveType] = useState<'CL' | 'SL' | 'HDL'>('CL');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [isHalfDay, setIsHalfDay] = useState(false);
   const [halfDayType, setHalfDayType] = useState<'Morning' | 'Afternoon' | null>(null);
   const [reason, setReason] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -42,7 +41,7 @@ const ApplyLeave: React.FC<ApplyLeaveProps> = ({ user, onSuccess }) => {
   };
 
   const calculateTotalDays = () => {
-    if (isHalfDay) return 0.5;
+    if (leaveType === 'HDL') return 0.5;
     if (!startDate || !endDate) return 0;
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -81,6 +80,12 @@ const ApplyLeave: React.FC<ApplyLeaveProps> = ({ user, onSuccess }) => {
       return;
     }
 
+    if (leaveType === 'HDL' && !halfDayType) {
+      setError("Please select a morning or afternoon session for your half day.");
+      setIsLoading(false);
+      return;
+    }
+
     if (!user.managerId) {
        setError("No manager assigned to your profile. Please contact HR.");
        setIsLoading(false);
@@ -96,10 +101,10 @@ const ApplyLeave: React.FC<ApplyLeaveProps> = ({ user, onSuccess }) => {
         managerId: user.managerId,
         leaveType,
         startDate: Timestamp.fromDate(new Date(startDate)),
-        endDate: Timestamp.fromDate(new Date(isHalfDay ? startDate : endDate)),
+        endDate: Timestamp.fromDate(new Date(leaveType === 'HDL' ? startDate : endDate)),
         totalDays,
-        isHalfDay,
-        halfDayType: isHalfDay ? (halfDayType || 'Morning') : null,
+        isHalfDay: leaveType === 'HDL',
+        halfDayType: leaveType === 'HDL' ? halfDayType : null,
         reason: reason || '',
         status: isAutoApproved ? 'Approved' : 'Pending',
         isEscalated: false,
@@ -197,6 +202,9 @@ const ApplyLeave: React.FC<ApplyLeaveProps> = ({ user, onSuccess }) => {
                   setLeaveType(e.target.value as any);
                   setStartDate('');
                   setEndDate('');
+                  if (e.target.value === 'HDL' && !halfDayType) {
+                    setHalfDayType('Morning');
+                  }
                 }}
                 className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
               >
@@ -224,7 +232,7 @@ const ApplyLeave: React.FC<ApplyLeaveProps> = ({ user, onSuccess }) => {
                 value={startDate}
                 onChange={(e) => {
                   setStartDate(e.target.value);
-                  if (isHalfDay || !endDate) setEndDate(e.target.value);
+                  if (leaveType === 'HDL' || !endDate) setEndDate(e.target.value);
                 }}
                 className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
               />
@@ -233,11 +241,11 @@ const ApplyLeave: React.FC<ApplyLeaveProps> = ({ user, onSuccess }) => {
               </p>
             </div>
 
-            {!isHalfDay && (
+            {leaveType !== 'HDL' && (
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-slate-700">End Date</label>
                 <input 
-                  type="date"
+                  type="date" 
                   required
                   min={startDate || minDate}
                   value={endDate}
@@ -262,30 +270,16 @@ const ApplyLeave: React.FC<ApplyLeaveProps> = ({ user, onSuccess }) => {
             </div>
           )}
 
-          <div className="flex items-center space-x-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
-            <input 
-              type="checkbox" 
-              id="halfday"
-              checked={isHalfDay}
-              onChange={(e) => {
-                setIsHalfDay(e.target.checked);
-                if (e.target.checked) setEndDate(startDate);
-              }}
-              className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
-            />
-            <label htmlFor="halfday" className="text-sm font-medium text-slate-700 select-none">This is a half-day leave</label>
-          </div>
-
-          {isHalfDay && (
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-slate-700">Session</label>
+          {leaveType === 'HDL' && (
+            <div className="space-y-2 p-4 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in duration-300">
+              <label className="block text-sm font-semibold text-slate-700 mb-3">Which half are you on leave?</label>
               <div className="flex space-x-4">
                 {['Morning', 'Afternoon'].map((type) => (
                   <button 
                     key={type}
                     type="button"
                     onClick={() => setHalfDayType(type as any)}
-                    className={`flex-1 py-2 px-4 rounded-lg border ${halfDayType === type ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200'} transition-all text-sm font-medium`}
+                    className={`flex-1 py-3 px-4 rounded-xl border-2 ${halfDayType === type ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'} transition-all text-sm font-black uppercase tracking-widest`}
                   >
                     {type}
                   </button>
