@@ -172,13 +172,22 @@ const Payslips: React.FC<PayslipsProps> = ({ user }) => {
                             </div>
                             <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.tax.toLocaleString('en-IN')}</span>
                           </div>
+                          {selectedPayslip.deductions.hdlDeductions > 0 && (
+                             <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                              <div>
+                                <p className="text-sm font-bold text-slate-600">Half-Day Leave</p>
+                                <p className="text-[10px] text-slate-400">{selectedPayslip.deductions.hdl} Instance(s) Unpaid</p>
+                              </div>
+                              <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.hdlDeductions.toLocaleString('en-IN')}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between items-center py-2 border-b border-slate-50">
                             <div>
                               <p className="text-sm font-bold text-slate-600">Leave Deductions</p>
                               <p className="text-[10px] text-slate-400">
                                 {selectedPayslip.deductions.cl > 4 && `${selectedPayslip.deductions.cl - 4} Extra CL `}
                                 {selectedPayslip.deductions.sl > 2 && `${selectedPayslip.deductions.sl - 2} Extra SL`}
-                                {!(selectedPayslip.deductions.cl > 4) && !(selectedPayslip.deductions.sl > 2) && "No extra unpaid leaves"}
+                                {!(selectedPayslip.deductions.cl > 4) && !(selectedPayslip.deductions.sl > 2) && "No extra unpaid full-day leaves"}
                               </p>
                             </div>
                             <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.leaveDeductions.toLocaleString('en-IN')}</span>
