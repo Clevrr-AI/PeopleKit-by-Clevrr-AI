@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserProfile, UserMetadata, LeaveRequest } from '../types';
+import { UserProfile, UserMetadata, LeaveRequest, LeaveBalances } from '../types';
 // Fix: Centralized firebase imports to use local firebase.ts configuration for consistent member visibility
 import { db, collection, query, where, getDocs, doc, getDoc, Timestamp, setDoc, serverTimestamp, deleteDoc, orderBy, limit, getAuth, createUserWithEmailAndPassword } from '../firebase';
 import { initializeApp, getApps, deleteApp } from 'firebase/app';
@@ -23,7 +23,7 @@ const Team: React.FC<TeamProps> = ({ user }) => {
   const [managers, setManagers] = useState<{uid: string, name: string}[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedMember, setSelectedMember] = useState<{ profile: UserProfile; metadata: UserMetadata | null } | null>(null);
+  const [selectedMember, setSelectedMember] = useState<{ profile: UserProfile; metadata: UserMetadata | null; balances: LeaveBalances | null; wfhCount: number } | null>(null);
   const [selectedMemberAttendance, setSelectedMemberAttendance] = useState<any[]>([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -288,7 +288,24 @@ const Team: React.FC<TeamProps> = ({ user }) => {
     try {
       const metaSnap = await getDoc(doc(db, 'userMetadata', member.uid));
       const metadata = metaSnap.exists() ? (metaSnap.data() as UserMetadata) : null;
-      setSelectedMember({ profile: member, metadata });
+      
+      const balanceSnap = await getDoc(doc(db, 'leaveBalances', member.uid));
+      const balances = balanceSnap.exists() ? (balanceSnap.data() as LeaveBalances) : null;
+
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const wfhQ = query(
+        collection(db, 'attendance'),
+        where('userId', '==', member.uid),
+        where('isWfh', '==', true),
+        where('checkinAt', '>=', Timestamp.fromDate(monthStart))
+      );
+      const wfhSnapshot = await getDocs(wfhQ);
+      const wfhCount = wfhSnapshot.size;
+
+      setSelectedMember({ profile: member, metadata, balances, wfhCount });
 
       // If founder, fetch attendance trend for this member
       if (isFounder) {
@@ -316,7 +333,7 @@ const Team: React.FC<TeamProps> = ({ user }) => {
       }
     } catch (err) {
       console.error("Error fetching member details:", err);
-      setSelectedMember({ profile: member, metadata: null });
+      setSelectedMember({ profile: member, metadata: null, balances: null, wfhCount: 0 });
     } finally {
       setLoadingDetails(false);
     }
@@ -569,6 +586,22 @@ const Team: React.FC<TeamProps> = ({ user }) => {
                   </div>
                   <div className="mt-8 flex flex-wrap gap-3 justify-center md:justify-start">
                     <span className="px-5 py-2 bg-slate-100 text-slate-600 rounded-full text-[11px] font-black uppercase tracking-widest">{selectedMember.profile.role}</span>
+                    {selectedMember.balances && (
+                      <>
+                        <span className="px-5 py-2 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-[11px] font-black uppercase tracking-widest flex items-center">
+                          <svg className="w-3 h-3 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Half Days: {selectedMember.balances.hdlCount || 0}
+                        </span>
+                        <span className="px-5 py-2 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full text-[11px] font-black uppercase tracking-widest flex items-center">
+                          <svg className="w-3 h-3 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          WFH Taken: {selectedMember.wfhCount}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
