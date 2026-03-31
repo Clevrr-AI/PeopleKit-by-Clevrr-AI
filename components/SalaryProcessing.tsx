@@ -140,7 +140,7 @@ const SalaryProcessing: React.FC = () => {
         // Retention Bonus Calculation
         // Note: hdlCount already represents instances. Multiply by 0.5 to get full day equivalence for bonus threshold.
         const totalLeavesForBonus = approvedCL + approvedSL + pendingCL + pendingSL + lateDays + (hdlCount * 0.5);
-        const eligibleForBonus = totalLeavesForBonus < 2;
+        const eligibleForBonus = totalLeavesForBonus <= 2;
         const bonusAmount = eligibleForBonus ? payPerDay * 2 : 0;
 
         const totalDeductions = tax + leaveDeductionAmount + lateDeductionAmount + hdlDeductionAmount;
@@ -220,6 +220,7 @@ const SalaryProcessing: React.FC = () => {
           currentMonthSlUsed: 0,
           lastMonthlyReset: serverTimestamp(),
           lateWarningLeft: 3,
+          wfhLeft: 8,
           hdlCount: 0
         });
 
@@ -423,7 +424,7 @@ const SalaryProcessing: React.FC = () => {
                         <div className="space-y-1">
                           <div className="flex items-center text-[10px] font-bold">
                             <span className="text-slate-400 uppercase mr-1">Absence Days:</span>
-                            <span className={c.totalLeavesForBonus >= 2 ? 'text-rose-500' : 'text-emerald-500'}>{c.totalLeavesForBonus.toFixed(1)}</span>
+                            <span className={c.totalLeavesForBonus > 2 ? 'text-rose-500' : 'text-emerald-500'}>{c.totalLeavesForBonus.toFixed(1)}</span>
                           </div>
                           {c.eligibleForBonus ? (
                             <div className="text-[10px] font-black text-indigo-600 uppercase bg-indigo-50 px-1.5 py-0.5 rounded inline-block">
