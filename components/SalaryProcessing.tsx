@@ -75,11 +75,9 @@ const SalaryProcessing: React.FC = () => {
         const tax = config.taxDeduction;
         const payPerDay = baseSalary / 30;
 
-        // Fetch current leave balances for HDL count
+        // Fetch current leave balances
         const balanceSnap = await getDoc(doc(db, 'leaveBalances', user.uid));
         const balances = balanceSnap.exists() ? (balanceSnap.data() as LeaveBalances) : null;
-        const hdlCount = balances ? (balances.hdlCount || 0) : 0;
-        const hdlDeductionAmount = hdlCount * (payPerDay * 0.5);
 
         // Query for leaves (Approved + Pending)
         const leaveQ = query(
@@ -96,9 +94,13 @@ const SalaryProcessing: React.FC = () => {
 
         const approvedCL = allLeaves.filter(l => l.leaveType === 'CL' && l.status === 'Approved').reduce((acc, curr) => acc + curr.totalDays, 0);
         const approvedSL = allLeaves.filter(l => l.leaveType === 'SL' && l.status === 'Approved').reduce((acc, curr) => acc + curr.totalDays, 0);
+        const approvedHDLCount = allLeaves.filter(l => l.leaveType === 'HDL' && l.status === 'Approved').length;
         
         const pendingCL = allLeaves.filter(l => l.leaveType === 'CL' && l.status === 'Pending').reduce((acc, curr) => acc + curr.totalDays, 0);
         const pendingSL = allLeaves.filter(l => l.leaveType === 'SL' && l.status === 'Pending').reduce((acc, curr) => acc + curr.totalDays, 0);
+        const pendingHDLCount = allLeaves.filter(l => l.leaveType === 'HDL' && l.status === 'Pending').length;
+
+        const hdlDeductionAmount = approvedHDLCount * (payPerDay * 0.5);
 
         // Deductions logic
         const extraCL = Math.max(0, approvedCL - 4);
@@ -119,8 +121,11 @@ const SalaryProcessing: React.FC = () => {
             return aDate >= startOfMonth && aDate <= endOfMonth;
           });
         
-        const lateDays = lateAttendances.reduce((acc, curr) => acc + (curr.lateType || 0), 0);
-        const lateDeductionAmount = lateDays * payPerDay;
+        const fullDayLateCount = lateAttendances.filter(a => a.lateType === 1).length;
+        const halfDayLateCount = lateAttendances.filter(a => a.lateType === 0.5).length;
+        const fullDayLateDeduction = fullDayLateCount * payPerDay;
+        const halfDayLateDeduction = halfDayLateCount * (payPerDay * 0.5);
+        const lateDeductionAmount = fullDayLateDeduction + halfDayLateDeduction;
 
         // Approved Reimbursements
         const reimQ = query(
@@ -138,8 +143,8 @@ const SalaryProcessing: React.FC = () => {
         const totalReimbursementsForUser = reimbursements.reduce((acc, curr) => acc + curr.amount, 0);
 
         // Retention Bonus Calculation
-        // Note: hdlCount already represents instances. Multiply by 0.5 to get full day equivalence for bonus threshold.
-        const totalLeavesForBonus = approvedCL + approvedSL + pendingCL + pendingSL + lateDays + (hdlCount * 0.5);
+        // Holidays = CL + SL + HDL (Approved or Pending). Late days are excluded from bonus threshold per "number of holidays" rule.
+        const totalLeavesForBonus = allLeaves.reduce((acc, curr) => acc + curr.totalDays, 0);
         const eligibleForBonus = totalLeavesForBonus <= 2;
         const bonusAmount = eligibleForBonus ? payPerDay * 2 : 0;
 
@@ -153,12 +158,16 @@ const SalaryProcessing: React.FC = () => {
           tax,
           leaveDeductions: leaveDeductionAmount,
           lateDeductions: lateDeductionAmount,
+          fullDayLateDeductions: fullDayLateDeduction,
+          halfDayLateDeductions: halfDayLateDeduction,
           hdlDeductions: hdlDeductionAmount,
           reimbursements: totalReimbursementsForUser,
           slCount: approvedSL,
           clCount: approvedCL,
-          hdlCount,
-          lateDays,
+          hdlCount: approvedHDLCount,
+          fullDayLateCount,
+          halfDayLateCount,
+          lateDays: fullDayLateCount + (halfDayLateCount * 0.5),
           unpaidLeaveDays,
           netSalary,
           totalDeductions,
@@ -202,9 +211,13 @@ const SalaryProcessing: React.FC = () => {
             leaveDeductions: calc.leaveDeductions,
             lateDeductions: calc.lateDeductions,
             hdlDeductions: calc.hdlDeductions,
+            fullDayLateDeductions: calc.fullDayLateDeductions,
+            halfDayLateDeductions: calc.halfDayLateDeductions,
             sl: calc.slCount,
             cl: calc.clCount,
             hdl: calc.hdlCount,
+            fullDayLateCount: calc.fullDayLateCount,
+            halfDayLateCount: calc.halfDayLateCount,
             lateDays: calc.lateDays
           },
           reimbursements: calc.reimbursements,
@@ -278,10 +291,12 @@ const SalaryProcessing: React.FC = () => {
     const updatedTax = parseFloat(editValues.tax) || 0;
     const updatedLeaveDed = parseFloat(editValues.leaveDeductions) || 0;
     const updatedLateDed = parseFloat(editValues.lateDeductions) || 0;
+    const updatedFullDayLateDed = parseFloat(editValues.fullDayLateDeductions) || 0;
+    const updatedHalfDayLateDed = parseFloat(editValues.halfDayLateDeductions) || 0;
     const updatedHdlDed = parseFloat(editValues.hdlDeductions) || 0;
     const updatedReimb = parseFloat(editValues.reimbursements) || 0;
     
-    const totalDeductions = updatedTax + updatedLeaveDed + updatedLateDed + updatedHdlDed;
+    const totalDeductions = updatedTax + updatedLeaveDed + updatedFullDayLateDed + updatedHalfDayLateDed + updatedHdlDed;
     const netSalary = updatedBase - totalDeductions + updatedReimb;
 
     newCalcs[editingIndex] = {
@@ -289,7 +304,9 @@ const SalaryProcessing: React.FC = () => {
       baseSalary: updatedBase,
       tax: updatedTax,
       leaveDeductions: updatedLeaveDed,
-      lateDeductions: updatedLateDed,
+      lateDeductions: updatedFullDayLateDed + updatedHalfDayLateDed,
+      fullDayLateDeductions: updatedFullDayLateDed,
+      halfDayLateDeductions: updatedHalfDayLateDed,
       hdlDeductions: updatedHdlDed,
       reimbursements: updatedReimb,
       totalDeductions,
@@ -309,14 +326,15 @@ const SalaryProcessing: React.FC = () => {
     const base = parseFloat(field === 'baseSalary' ? value : updatedValues.baseSalary) || 0;
     const tax = parseFloat(field === 'tax' ? value : updatedValues.tax) || 0;
     const lDed = parseFloat(field === 'leaveDeductions' ? value : updatedValues.leaveDeductions) || 0;
-    const ltDed = parseFloat(field === 'lateDeductions' ? value : updatedValues.lateDeductions) || 0;
+    const fdlDed = parseFloat(field === 'fullDayLateDeductions' ? value : updatedValues.fullDayLateDeductions) || 0;
+    const hdlLateDed = parseFloat(field === 'halfDayLateDeductions' ? value : updatedValues.halfDayLateDeductions) || 0;
     const hDed = parseFloat(field === 'hdlDeductions' ? value : updatedValues.hdlDeductions) || 0;
     const reim = parseFloat(field === 'reimbursements' ? value : updatedValues.reimbursements) || 0;
     
-    const totalDeductions = tax + lDed + ltDed + hDed;
+    const totalDeductions = tax + lDed + fdlDed + hdlLateDed + hDed;
     const netSalary = base - totalDeductions + reim;
     
-    setEditValues({ ...updatedValues, totalDeductions, netSalary });
+    setEditValues({ ...updatedValues, totalDeductions, netSalary, lateDeductions: fdlDed + hdlLateDed });
   };
 
   const totalHistoryPayout = history.reduce((acc, curr) => acc + curr.netSalary, 0);
@@ -422,16 +440,30 @@ const SalaryProcessing: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="space-y-1">
-                          <div className="flex items-center text-[10px] font-bold">
-                            <span className="text-slate-400 uppercase mr-1">Absence Days:</span>
-                            <span className={c.totalLeavesForBonus > 2 ? 'text-rose-500' : 'text-emerald-500'}>{c.totalLeavesForBonus.toFixed(1)}</span>
+                          <div className="flex flex-col text-[10px] font-bold space-y-0.5">
+                            <div className="flex justify-between text-slate-500">
+                              <span>CL:</span>
+                              <span className="text-slate-900">{c.clCount}</span>
+                            </div>
+                            <div className="flex justify-between text-slate-500">
+                              <span>SL:</span>
+                              <span className="text-slate-900">{c.slCount}</span>
+                            </div>
+                            <div className="flex justify-between text-slate-500">
+                              <span>HDL:</span>
+                              <span className="text-slate-900">{c.hdlCount} ({(c.hdlCount * 0.5).toFixed(1)})</span>
+                            </div>
+                            <div className="flex justify-between border-t border-slate-100 pt-0.5">
+                              <span className="text-slate-400 uppercase">TOTAL ABSENCE:</span>
+                              <span className={c.totalLeavesForBonus > 2 ? 'text-rose-500' : 'text-emerald-500'}>{c.totalLeavesForBonus.toFixed(1)}</span>
+                            </div>
                           </div>
                           {c.eligibleForBonus ? (
-                            <div className="text-[10px] font-black text-indigo-600 uppercase bg-indigo-50 px-1.5 py-0.5 rounded inline-block">
+                            <div className="text-[10px] font-black text-indigo-600 uppercase bg-indigo-50 px-1.5 py-0.5 rounded inline-block mt-1">
                               +₹{c.bonusAmount.toLocaleString('en-IN')} Bonus
                             </div>
                           ) : (
-                            <div className="text-[10px] font-bold text-slate-400 uppercase italic">No Bonus</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase italic mt-1">No Bonus</div>
                           )}
                         </div>
                       </td>
@@ -439,18 +471,28 @@ const SalaryProcessing: React.FC = () => {
                         {isEditing ? (
                           <div className="space-y-2">
                              <div className="flex items-center text-xs text-rose-500">
-                              <span className="w-12 text-[10px] text-slate-400">Tax:</span>
+                              <span className="w-16 text-[10px] text-slate-400">Tax:</span>
                               <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.tax} onChange={(e) => handleEditChange('tax', e.target.value)} />
                             </div>
                             <div className="flex items-center text-xs text-rose-500">
-                              <span className="w-12 text-[10px] text-slate-400">HDL:</span>
+                              <span className="w-16 text-[10px] text-slate-400">HDL Ded:</span>
                               <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.hdlDeductions} onChange={(e) => handleEditChange('hdlDeductions', e.target.value)} />
+                            </div>
+                            <div className="flex items-center text-xs text-rose-500">
+                              <span className="w-16 text-[10px] text-slate-400">FD Late:</span>
+                              <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.fullDayLateDeductions} onChange={(e) => handleEditChange('fullDayLateDeductions', e.target.value)} />
+                            </div>
+                            <div className="flex items-center text-xs text-rose-500">
+                              <span className="w-16 text-[10px] text-slate-400">HD Late:</span>
+                              <input type="number" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold" value={rowData.halfDayLateDeductions} onChange={(e) => handleEditChange('halfDayLateDeductions', e.target.value)} />
                             </div>
                           </div>
                         ) : (
                           <div className="space-y-1">
                             <div className="text-[11px] text-rose-500 font-bold">-₹{c.tax.toLocaleString('en-IN')} Tax</div>
                             {c.hdlDeductions > 0 && <div className="text-[11px] text-rose-500 font-bold">-₹{c.hdlDeductions.toLocaleString('en-IN')} HDL ({c.hdlCount})</div>}
+                            {c.fullDayLateDeductions > 0 && <div className="text-[11px] text-rose-500 font-bold">-₹{c.fullDayLateDeductions.toLocaleString('en-IN')} Fullday Late ({c.fullDayLateCount})</div>}
+                            {c.halfDayLateDeductions > 0 && <div className="text-[11px] text-rose-500 font-bold">-₹{c.halfDayLateDeductions.toLocaleString('en-IN')} Halfday Late ({c.halfDayLateCount})</div>}
                             {c.leaveDeductions > 0 && <div className="text-[11px] text-rose-500">-₹{c.leaveDeductions.toLocaleString('en-IN')} Unpaid</div>}
                           </div>
                         )}
@@ -539,9 +581,10 @@ const SalaryProcessing: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-wrap gap-1">
                         <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">TAX ₹{p.deductions.tax}</span>
-                        {p.deductions.hdlDeductions > 0 && <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">HDL ₹{p.deductions.hdlDeductions}</span>}
+                        {p.deductions.hdlDeductions > 0 && <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">HDL ₹{p.deductions.hdlDeductions} ({p.deductions.hdl})</span>}
+                        {p.deductions.fullDayLateDeductions > 0 && <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">FD LATE ₹{p.deductions.fullDayLateDeductions} ({p.deductions.fullDayLateCount})</span>}
+                        {p.deductions.halfDayLateDeductions > 0 && <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">HD LATE ₹{p.deductions.halfDayLateDeductions} ({p.deductions.halfDayLateCount})</span>}
                         {p.deductions.leaveDeductions > 0 && <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100">LEAVE ₹{p.deductions.leaveDeductions}</span>}
-                        {p.deductions.lateDeductions > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-black rounded border border-amber-100">LATE ₹{p.deductions.lateDeductions}</span>}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

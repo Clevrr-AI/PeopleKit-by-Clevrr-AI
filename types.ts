@@ -51,10 +51,14 @@ export interface Payslip {
     tax: number;
     leaveDeductions: number;
     lateDeductions: number;
-    hdlDeductions: number; // New field for half-day deductions
+    hdlDeductions: number;
+    fullDayLateDeductions: number;
+    halfDayLateDeductions: number;
     sl: number;
     cl: number;
-    hdl: number; // Track count of half days for transparency
+    hdl: number;
+    fullDayLateCount: number;
+    halfDayLateCount: number;
     lateDays: number;
   };
   reimbursements: number;
@@ -85,6 +89,7 @@ export interface LeaveBalances {
   currentMonthSlUsed: number;
   hdlCount: number;
   lateWarningLeft: number;
+  wfhLeft: number;
 }
 
 export interface BonusMonth {

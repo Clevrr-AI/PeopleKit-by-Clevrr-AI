@@ -181,6 +181,24 @@ const Payslips: React.FC<PayslipsProps> = ({ user }) => {
                               <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.hdlDeductions.toLocaleString('en-IN')}</span>
                             </div>
                           )}
+                          {selectedPayslip.deductions.fullDayLateDeductions > 0 && (
+                            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                              <div>
+                                <p className="text-sm font-bold text-slate-600">Full-Day Late</p>
+                                <p className="text-[10px] text-slate-400">{selectedPayslip.deductions.fullDayLateCount} Instance(s) Unpaid</p>
+                              </div>
+                              <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.fullDayLateDeductions.toLocaleString('en-IN')}</span>
+                            </div>
+                          )}
+                          {selectedPayslip.deductions.halfDayLateDeductions > 0 && (
+                            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                              <div>
+                                <p className="text-sm font-bold text-slate-600">Half-Day Late</p>
+                                <p className="text-[10px] text-slate-400">{selectedPayslip.deductions.halfDayLateCount} Instance(s) Unpaid</p>
+                              </div>
+                              <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.halfDayLateDeductions.toLocaleString('en-IN')}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between items-center py-2 border-b border-slate-50">
                             <div>
                               <p className="text-sm font-bold text-slate-600">Leave Deductions</p>
@@ -192,15 +210,6 @@ const Payslips: React.FC<PayslipsProps> = ({ user }) => {
                             </div>
                             <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.leaveDeductions.toLocaleString('en-IN')}</span>
                           </div>
-                          {selectedPayslip.deductions.lateDays > 0 && (
-                            <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                              <div>
-                                <p className="text-sm font-bold text-slate-600">Late Deductions</p>
-                                <p className="text-[10px] text-slate-400">{selectedPayslip.deductions.lateDays} Unpaid Late Pass(es)</p>
-                              </div>
-                              <span className="text-sm font-bold text-rose-500">-₹{selectedPayslip.deductions.lateDeductions.toLocaleString('en-IN')}</span>
-                            </div>
-                          )}
                         </div>
                       </section>
                     </div>
